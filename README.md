@@ -50,7 +50,7 @@ need a first build on their host OS. See **[build-instructions/](build-instructi
 ## Quick start (Linux)
 
 ```bash
-# prerequisites (Ubuntu/Debian): Flutter SDK ≥ 3.50 plus
+# prerequisites (Ubuntu/Debian): Flutter SDK ≥ 3.50 (see build-instructions/linux.md) plus
 sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
 
 git clone https://github.com/ChrisJu05/UnRot.git
