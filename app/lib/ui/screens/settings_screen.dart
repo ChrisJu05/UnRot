@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../app/app_services.dart';
+import '../../core/models/languages.dart';
 import '../../core/models/settings.dart';
 import '../../core/storage/repositories.dart';
 import '../../core/storage/settings_repository.dart';
@@ -355,20 +356,7 @@ class _GenerationSettingsState extends State<_GenerationSettings> {
     text: context.read<SettingsRepository>().settings.generation.customInstructions,
   );
 
-  static const languages = [
-    'source',
-    'English',
-    'Deutsch',
-    'Español',
-    'Français',
-    'Italiano',
-    'Português',
-    'Nederlands',
-    'Polski',
-    'Türkçe',
-    '中文',
-    '日本語',
-  ];
+  static const languages = ['source', ...reelLanguages];
   static const styles = {
     'friendly': 'Friendly tutor',
     'concise': 'Concise',
@@ -417,7 +405,7 @@ class _GenerationSettingsState extends State<_GenerationSettings> {
             Expanded(
               child: DropdownButtonFormField<String>(
                 initialValue: languages.contains(g.language) ? g.language : 'source',
-                decoration: const InputDecoration(labelText: 'Reel language', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Default reel language', border: OutlineInputBorder()),
                 items: [
                   for (final l in languages)
                     DropdownMenuItem(value: l, child: Text(l == 'source' ? 'Same as material' : l)),
@@ -443,6 +431,25 @@ class _GenerationSettingsState extends State<_GenerationSettings> {
           max: 12,
           divisions: 11,
           onChanged: (v) => repo.update((s) => s.generation.reelsPerRequest = v.round()),
+        ),
+        const SizedBox(height: 6),
+        const Text('Visuals: graphs, charts, sketches, equations, figures'),
+        const SizedBox(height: 6),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'off', label: Text('Off')),
+            ButtonSegment(value: 'some', label: Text('Some')),
+            ButtonSegment(value: 'lots', label: Text('Lots')),
+          ],
+          selected: {g.visualLevel},
+          onSelectionChanged: (v) => repo.update((s) => s.generation.visualLevel = v.first),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Allow images from the internet in visuals'),
+          subtitle: const Text('Off: only figures from your own material are shown (no requests to image hosts).'),
+          value: g.allowWebImages,
+          onChanged: (v) => repo.update((s) => s.generation.allowWebImages = v),
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,

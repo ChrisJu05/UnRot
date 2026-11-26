@@ -179,9 +179,12 @@ class FeedEngine extends ChangeNotifier {
     final pick = _pickSection(sources);
     if (pick != null) {
       final (source, chunk, mode) = pick;
+      // Re-use unseen reels, but only those written in the currently chosen language.
+      final language = GenerationJob.effectiveLanguage(source, settings.settings.generation);
       final cached = reels
           .forChunk(chunk.id)
           .where((r) => !inFeed.contains(r.id) && (progress.peekReel(r.id)?.views ?? 0) == 0)
+          .where((r) => r.language == null || r.language == language)
           .toList();
       fresh.addAll(cached.take(batch).map(FeedItem.new));
       final missing = batch - fresh.length;
@@ -258,8 +261,9 @@ class FeedEngine extends ChangeNotifier {
     final base = feed.useModeReelMix || feed.reelTypeWeights.values.every((w) => w <= 0)
         ? mode.defaultReelMix
         : feed.reelTypeWeights;
-    final mix = Map.of(mode.mixFor(progress.peekChunk(chunkId), base))
-      ..removeWhere((k, v) => v <= 0 || ReelTypes.byId(k) == null);
+    final mix = Map.of(mode.mixFor(progress.peekChunk(chunkId), base));
+    if (mix.containsKey('visual')) mix['visual'] = mix['visual']! * settings.settings.generation.visualWeightFactor;
+    mix.removeWhere((k, v) => v <= 0 || ReelTypes.byId(k) == null);
     if (mix.isEmpty) mix['explainer'] = 1;
     final total = mix.values.fold<double>(0, (a, b) => a + b);
     final result = <String>[];

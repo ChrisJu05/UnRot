@@ -229,6 +229,48 @@ void main() {
       expect(h.feed.items.skip(1).any((i) => i.isReview && i.reel.id == quiz.id), isTrue);
     });
 
+    test('cached reels are only re-used in the chosen language', () async {
+      final h = await Harness.create();
+      final source = await h.addSource('Bio');
+      final chunk = h.library.chunks(source.id).first;
+      h.reels.addAll([
+        Reel(
+          id: 'de1',
+          sourceId: source.id,
+          chunkId: chunk.id,
+          type: 'explainer',
+          data: {'body': 'Deutsch'},
+          createdAt: h.now,
+          language: 'Deutsch',
+        ),
+        Reel(
+          id: 'en1',
+          sourceId: source.id,
+          chunkId: chunk.id,
+          type: 'explainer',
+          data: {'body': 'English'},
+          createdAt: h.now,
+          language: 'English',
+        ),
+      ]);
+      source.study.reelLanguage = 'English';
+      await h.feed.ensureBuffer(force: true);
+      final ids = h.feed.items.map((i) => i.reel.id).toList();
+      expect(ids, contains('en1'));
+      expect(ids, isNot(contains('de1')));
+      expect(h.feed.items.where((i) => i.reel.language != null).every((i) => i.reel.language == 'English'), isTrue);
+    });
+
+    test('visual level controls how often visual reels are requested', () async {
+      final h = await Harness.create();
+      await h.addSource('Bio');
+      const mode = ExploreMode();
+      h.settings.update((s) => s.generation.visualLevel = 'off');
+      expect(h.feed.sampleTypes(mode, 'x:0', 200), isNot(contains('visual')));
+      h.settings.update((s) => s.generation.visualLevel = 'lots');
+      expect(h.feed.sampleTypes(mode, 'x:0', 200).where((t) => t == 'visual').length, greaterThan(40));
+    });
+
     test('reports an empty library and an AI provider without key', () async {
       final h = await Harness.create();
       await h.feed.ensureBuffer(force: true);

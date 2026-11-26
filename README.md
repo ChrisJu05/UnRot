@@ -4,17 +4,32 @@ UnRot is a fully vibecoded short form content app that is intended to allow user
 created for them by their AI models from study materials in short form interactive content.
 
 Think TikTok/Instagram Reels, but every reel is a bite of **your own** study material: lecture scripts, books and
-notes. Your own AI (bring your own API key) turns them into explainers, quizzes, flashcards, gap texts and
-write-from-memory tasks. UnRot tracks your progress through the material and adapts what it shows next.
+notes. Your own AI (bring your own API key) turns them into explainers, quizzes, flashcards, gap texts,
+write-from-memory tasks and **interactive visuals** (graphs, charts, sketches, equations and figures with
+sliders, dials and buttons). UnRot tracks your progress through the material and adapts what it shows next.
 
 ![Feed: explainer, quiz, write-from-memory with pen, annotations](docs/screenshots/feed.png)
+
+![Interactive visuals: function plot with slider and goal, chart with dial, animated sketch, step-by-step equation, figure from the PDF, math in a quiz](docs/screenshots/visuals.png)
 
 ## Features
 
 * **Import study material**: PDF, EPUB, DOCX, Markdown, TXT, HTML, or pasted text. Material is split into sections
-  following the document's headings (chapters, `1.2 …`, Markdown `#`).
+  following the document's headings (chapters, `1.2 …`, Markdown `#`). **Figures** (images) in PDF, EPUB and
+  DOCX files are extracted with their captions and can be shown in reels.
 * **Reel types**: explainer, key points, multiple choice, true/false, flashcard, fill-the-gap, memory hook
-  (mnemonic) and **write from memory** (handwrite/sketch with a pen, or type, then compare with a model answer).
+  (mnemonic), **write from memory** (handwrite/sketch with a pen, or type, then compare with a model answer) and
+  **interactive visual**:
+  * **graphs of functions** (`a*x^2 + b`, `e^(-t/S)`, …) with a tap/drag readout and points,
+  * **charts** (bar, line, pie) whose values can depend on the controls,
+  * **sketches/diagrams** drawn by the AI as SVG, which can be animated and driven by the controls,
+  * **equations** derived step by step, and **figures** from your own material,
+  * **controls**: sliders, dials (rotary knobs), toggles, option buttons and +/− steppers,
+  * **animations** with play/pause/scrub, and **goals** ("make the parabola open downwards") that count as a
+    correct answer when you reach them.
+* **Math everywhere**: formulas written in LaTeX (`$\frac{a}{b}$`, `$$…$$`) are rendered in every reel type.
+* **Reel language per source**: keep reels in the material's language or have them translated (e.g. German
+  script → English reels, with the original technical terms in brackets).
 * **Study modes** per source:
   * **Linear course**: goes through the material in order; explains first, then checks understanding.
   * **Exam prep**: paces the material towards an exam date, focuses on exam-style questions and drills weak spots.
@@ -26,11 +41,12 @@ write-from-memory tasks. UnRot tracks your progress through the material and ada
   buttons) and what it already covered. **Explain more** creates a deep dive on any reel.
 * **Configurable feed**: share of the feed per source, reels per request, prefetching, share of reviews, mix of
   reel types (per study mode or custom), "study only this source/section".
-* **Configurable generation**: difficulty (adaptive/easy/medium/hard), tone, language, words per reel, emojis,
-  custom instructions, and a focus note per source.
+* **Configurable generation**: difficulty (adaptive/easy/medium/hard), tone, default language, words per reel,
+  emojis, amount of visuals (off/some/lots), web images on/off, custom instructions, and a focus note per source.
 * **Bring your own AI**: Anthropic Claude, OpenAI, Google Gemini or any **OpenAI-compatible** endpoint
   (OpenRouter, Ollama, LM Studio, Groq, Mistral, DeepSeek, …). Includes "Browse models" and "Test connection".
-  An **offline generator** works with no key or network.
+  An **offline generator** works with no key or network. It can also show figures and plot formulas it finds in
+  the text (e.g. `R(t) = e^(-t/S)` becomes a graph with a slider for `S`).
 * **Pen support**: pressure-sensitive drawing, eraser (pen eraser end/button or tool), highlighter, palm rejection
   ("stylus only"), annotations directly on any reel, and handwriting in write-from-memory reels. Works with Apple
   Pencil, S Pen, USI, Windows Ink and Wacom.
@@ -83,10 +99,10 @@ the models your key can use) and press **Test connection**.
 ```
 app/                    Flutter application (all platforms)
   lib/core/             models, JSON storage, secret store
-  lib/modules/          ingestion · ai · generation · reels · study · feed
-  lib/ui/               screens, reel widgets, pen canvas, theme
+  lib/modules/          ingestion · ai · generation · reels · visuals · study · feed
+  lib/ui/               screens, reel widgets, visuals (plots, charts, SVG, math, dials), pen canvas, theme
   lib/app/              composition root (AppServices) and MaterialApp
-  test/                 unit + widget tests (59 tests) and fixtures
+  test/                 unit + widget tests (90 tests) and fixtures
   linux/ windows/ macos/ ios/ android/   platform runners
 build-instructions/     one build guide per platform
 docs/ARCHITECTURE.md    how the pieces fit together and how to extend them
@@ -100,7 +116,7 @@ plus a registry entry. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ```bash
 cd app
 flutter analyze        # static analysis (clean)
-flutter test           # 59 unit and widget tests
+flutter test           # 90 unit and widget tests
 ```
 
 Useful environment variables: `UNROT_DATA_DIR` (use another data folder), `UNROT_DISABLE_IMPELLER=1` (Linux:
@@ -109,7 +125,8 @@ use the Skia renderer, for VMs or software OpenGL).
 ## Roadmap ideas
 
 * OCR for scanned PDFs, images and handwriting recognition for write-from-memory answers (AI vision grading)
-* Rendering formulas (LaTeX) and images/diagrams from the source in reels
+* Send figures to vision-capable models so the AI can label and quiz on them (hotspots on images)
+* 3D models and physics simulations as visual kinds
 * AI-generated outlines for long books; whole-book exam simulations
 * Platform keychains for API keys; sync between devices
 * Text-to-speech narration and auto-advancing "lean-back" mode

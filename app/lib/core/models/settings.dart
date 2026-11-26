@@ -57,6 +57,8 @@ class GenerationSettings {
     this.customInstructions = '',
     this.reelsPerRequest = 5,
     this.fallbackToOffline = true,
+    this.visualLevel = 'some',
+    this.allowWebImages = false,
   });
 
   /// `adaptive`, `easy`, `medium`, `hard`.
@@ -77,6 +79,19 @@ class GenerationSettings {
   /// Use the built-in offline generator if the AI call fails.
   bool fallbackToOffline;
 
+  /// How many interactive visuals (graphs, charts, sketches, equations): `off`, `some`, `lots`.
+  String visualLevel;
+
+  /// Let visuals load images from the internet (privacy: contacts the image host).
+  bool allowWebImages;
+
+  /// Multiplier for the weight of `visual` reels in the mix.
+  double get visualWeightFactor => switch (visualLevel) {
+    'off' => 0,
+    'lots' => 2.5,
+    _ => 1,
+  };
+
   Map<String, dynamic> toJson() => {
     'difficulty': difficulty,
     'style': style,
@@ -86,6 +101,8 @@ class GenerationSettings {
     'customInstructions': customInstructions,
     'reelsPerRequest': reelsPerRequest,
     'fallbackToOffline': fallbackToOffline,
+    'visualLevel': visualLevel,
+    'allowWebImages': allowWebImages,
   };
 
   factory GenerationSettings.fromJson(Map<String, dynamic> json) => GenerationSettings(
@@ -97,6 +114,8 @@ class GenerationSettings {
     customInstructions: jString(json['customInstructions']),
     reelsPerRequest: jInt(json['reelsPerRequest'], 5).clamp(1, 12),
     fallbackToOffline: jBool(json['fallbackToOffline'], true),
+    visualLevel: jString(json['visualLevel'], 'some'),
+    allowWebImages: jBool(json['allowWebImages']),
   );
 }
 

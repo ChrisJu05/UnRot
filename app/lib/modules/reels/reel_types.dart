@@ -1,4 +1,5 @@
 import '../../core/util/json.dart';
+import '../visuals/visual_spec.dart';
 
 /// Describes one kind of reel: how the AI should produce it and how raw
 /// model output is validated. The matching widget lives in
@@ -26,7 +27,8 @@ abstract class ReelTypeSpec {
   String get promptGuidance;
 
   /// JSON schema of one reel object (all objects must be closed for structured output).
-  Map<String, Object?> get jsonSchema;
+  /// Null for free-form types; requests containing them are sent without a schema.
+  Map<String, Object?>? get jsonSchema;
 
   /// Validates and cleans a raw model object; returns null if unusable.
   Map<String, dynamic>? normalize(Map<String, dynamic> raw);
@@ -295,6 +297,51 @@ class MnemonicSpec extends ReelTypeSpec {
   }
 }
 
+/// Interactive / animated graphics: function plots, charts, SVG sketches,
+/// step-by-step equations and figures from the source, with sliders, dials,
+/// buttons and optional goals ("challenges").
+class VisualReelSpec extends ReelTypeSpec {
+  const VisualReelSpec();
+  @override
+  String get id => 'visual';
+  @override
+  String get label => 'Interactive visual';
+  @override
+  String get description => 'Graphs, charts, sketches, equations and figures you can manipulate.';
+  @override
+  bool get isRecall => false;
+  @override
+  String get promptFormat =>
+      '{"type":"visual","title":"…","caption":"1-2 sentences, may use \$LaTeX\$","visual":{…one of the kinds below…},'
+      '"controls":[…0-3 controls…],"animate":null,"challenge":null}\n'
+      '  visual kinds:\n'
+      '  • {"kind":"function_plot","x_min":-5,"x_max":5,"y_min":null,"y_max":null,"x_label":"x","y_label":"y",'
+      '"functions":[{"expr":"a*x^2+b","label":"f(x)","color":"#FFD54F"}],"points":[{"x":"0","y":"b","label":"vertex"}]}\n'
+      '  • {"kind":"chart","chart_type":"bar|line|pie","labels":["2019","2020"],"series":[{"name":"…","values":["3.1","2.4*g"]}]}\n'
+      '  • {"kind":"diagram","svg":"<svg viewBox=\'0 0 320 220\'>…</svg>"}  (a clear sketch/diagram; single quotes for '
+      'attributes; {{expression}} placeholders make it interactive or animated, e.g. cx=\'{{160+80*cos(t)}}\')\n'
+      '  • {"kind":"equation","latex":"E = mc^2","steps":[{"latex":"…","note":"…"}]}  (derivation revealed step by step)\n'
+      '  • {"kind":"image","image_id":"img3","alt":"…"}  (only ids listed under FIGURES)\n'
+      '  controls: {"kind":"slider|dial|toggle|buttons|stepper","param":"a","label":"Steepness a","min":-3,"max":3,'
+      '"step":0.1,"value":1,"unit":"","options":[{"label":"Linear","value":1}]}  (options only for buttons)\n'
+      '  animate: {"param":"t","from":0,"to":6.28,"seconds":4,"loop":true}  drives a time variable for animations\n'
+      '  challenge: {"prompt":"Make the parabola open downwards","condition":"a < 0","success":"…"}  a goal reached '
+      'by moving the controls\n'
+      '  Expressions use + - * / ^, sin cos tan exp ln log sqrt abs min max, pi, e and comparisons (< > == && ||); '
+      'x is the plot variable; every other variable must be a control param or the animate param.';
+  @override
+  String get promptGuidance =>
+      'Use visuals where a picture teaches better than words: functions and graphs, quantities and data from the '
+      'source, geometry, physics, processes and structures (sketch them as SVG), formulas (equation steps). Make '
+      'controls meaningful (parameters of the concept). Never invent data that is not in the source. SVGs are shown on '
+      'a dark background: transparent background, light strokes/text (#FFFFFF, #FFD54F, #80DEEA, #FF8A80), '
+      'font-size >= 12.';
+  @override
+  Map<String, Object?>? get jsonSchema => null;
+  @override
+  Map<String, dynamic>? normalize(Map<String, dynamic> raw) => VisualNormalizer.normalize(raw);
+}
+
 /// Registry of all reel types.
 class ReelTypes {
   static const List<ReelTypeSpec> all = [
@@ -306,6 +353,7 @@ class ReelTypes {
     ClozeSpec(),
     WriteRecallSpec(),
     MnemonicSpec(),
+    VisualReelSpec(),
   ];
 
   static final Map<String, ReelTypeSpec> _byId = {for (final t in all) t.id: t};

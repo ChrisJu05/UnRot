@@ -85,6 +85,20 @@ class JsonStore {
     if (await file.exists()) await file.delete();
   }
 
+  /// Binary files (e.g. figures) next to the JSON documents.
+  File file(String name) => _file(name);
+
+  Future<void> writeBytes(String name, List<int> bytes) async {
+    final file = _file(name);
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+  }
+
+  Future<void> deleteDirectory(String name) async {
+    final dir = Directory(p.join(directory.path, name));
+    if (await dir.exists()) await dir.delete(recursive: true);
+  }
+
   Future<List<String>> list(String subdirectory) async {
     final dir = Directory(p.join(directory.path, subdirectory));
     if (!await dir.exists()) return [];

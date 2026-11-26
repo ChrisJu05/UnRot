@@ -31,12 +31,15 @@ class PdfTextExtractor implements TextExtractor {
     Object? builtInError;
     var pageCount = 0;
     var unmapped = false;
+    var images = <ExtractedImage>[];
     try {
       final parser = PdfDocumentParser(bytes);
       final pages = parser.extractPages();
       pageCount = pages.length;
       unmapped = parser.unmappedFonts;
-      builtIn = assemblePdfText(pages);
+      final repeated = parser.repeatedImages;
+      builtIn = assemblePdfText(pages, skipImages: repeated);
+      images = parser.images.where((i) => !repeated.contains(i.id)).toList();
     } on PdfEncryptedException {
       builtInError = 'This PDF is encrypted.';
     } catch (e) {
@@ -65,6 +68,7 @@ class PdfTextExtractor implements TextExtractor {
     return ExtractedDocument(
       title: title,
       text: builtIn,
+      images: images,
       warnings: [if (unmapped) 'Some text uses fonts without a Unicode mapping and may be missing.'],
     );
   }
@@ -117,8 +121,8 @@ class PdfTextExtractor implements TextExtractor {
 
 /// Turns extracted lines into text with Markdown headings and paragraphs.
 /// Removes running headers/footers and page numbers.
-String assemblePdfText(List<PdfPageText> pages) {
-  final all = pages.expand((pg) => pg.lines).toList();
+String assemblePdfText(List<PdfPageText> pages, {Set<String> skipImages = const {}}) {
+  final all = pages.expand((pg) => pg.lines).where((l) => l.imageId == null).toList();
   if (all.isEmpty) return '';
 
   // Body font size = size covering the most characters.
@@ -146,6 +150,7 @@ String assemblePdfText(List<PdfPageText> pages) {
     final n = page.lines.length;
     final edgeIdx = {0, 1, n - 2, n - 1}.where((i) => i >= 0 && i < n);
     for (final i in edgeIdx) {
+      if (page.lines[i].imageId != null) continue;
       final key = norm(page.lines[i].text.toString());
       if (key.length < 80) freq[key] = (freq[key] ?? 0) + 1;
     }
@@ -157,8 +162,26 @@ String assemblePdfText(List<PdfPageText> pages) {
     final n = page.lines.length;
     var lastWasHeading = false;
     double? lastHeadingSize;
+    final captionLines = <int>{};
     for (var i = 0; i < n; i++) {
+      if (captionLines.contains(i)) continue;
       final line = page.lines[i];
+      if (line.imageId != null) {
+        if (skipImages.contains(line.imageId)) continue;
+        // A following "Figure 3: …" line becomes the caption.
+        var caption = '';
+        for (var k = i + 1; k < n && k <= i + 2; k++) {
+          final next = page.lines[k].text.toString().trim();
+          if (_captionRe.hasMatch(next)) {
+            caption = next;
+            captionLines.add(k); // shown with the figure, not merged into the next paragraph
+            break;
+          }
+        }
+        out.write(figureMarkerText(line.imageId!, caption));
+        lastWasHeading = false;
+        continue;
+      }
       final text = line.text.toString().replaceAll(RegExp(r'[ \t]+'), ' ').trim();
       if (text.isEmpty) continue;
       final isEdge = i < 2 || i >= n - 2;
@@ -196,3 +219,8 @@ String assemblePdfText(List<PdfPageText> pages) {
   }
   return out.toString().replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
 }
+
+final _captionRe = RegExp(
+  r'^(fig\.?|figure|abb\.?|abbildung|bild|table|tab\.|tabelle|grafik|chart|diagram|diagramm)\s*\d',
+  caseSensitive: false,
+);

@@ -30,6 +30,7 @@ class LinearMode extends StudyMode {
     'flashcard': 0.5,
     'mnemonic': 0.5,
     'write_recall': 0.5,
+    'visual': 1.5,
   };
   @override
   String get promptGuidance =>
@@ -54,7 +55,7 @@ class LinearMode extends StudyMode {
   @override
   Map<String, double> mixFor(ChunkProgress? progress, Map<String, double> base) {
     if (progress == null || progress.reelsSeen < 2) {
-      return {'explainer': 4, 'key_points': 1.5, 'quiz': 1, 'true_false': 0.5, 'mnemonic': 0.5};
+      return {'explainer': 4, 'key_points': 1.5, 'visual': 1.5, 'quiz': 1, 'true_false': 0.5, 'mnemonic': 0.5};
     }
     return base;
   }
@@ -83,6 +84,7 @@ class ExamPrepMode extends StudyMode {
     'flashcard': 1,
     'explainer': 1,
     'key_points': 1,
+    'visual': 1,
   };
   @override
   String get promptGuidance =>
@@ -163,6 +165,7 @@ class RoteMode extends StudyMode {
     'write_recall': 2,
     'mnemonic': 1.5,
     'quiz': 1,
+    'visual': 0.3,
   };
   @override
   String get promptGuidance =>
@@ -209,6 +212,7 @@ class ExploreMode extends StudyMode {
     'quiz': 2,
     'true_false': 2,
     'mnemonic': 1,
+    'visual': 2,
   };
   @override
   String get promptGuidance =>

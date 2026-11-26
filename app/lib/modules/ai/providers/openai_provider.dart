@@ -51,7 +51,7 @@ class OpenAiProvider extends HttpAiProvider {
         'max_completion_tokens': request.maxOutputTokens
       else
         'max_tokens': request.maxOutputTokens,
-      if (request.jsonSchema != null && jsonMode(config)) 'response_format': {'type': 'json_object'},
+      if (request.wantsJson && jsonMode(config)) 'response_format': {'type': 'json_object'},
     };
     Map<String, dynamic> json;
     try {

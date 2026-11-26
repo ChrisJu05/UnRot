@@ -12,7 +12,7 @@ class ReelParser {
 
   /// Extracts the first JSON value from [text], tolerating code fences and prose.
   static Object? extractJson(String text) {
-    var t = text.trim();
+    var t = repairLatexEscapes(text.trim());
     final fence = RegExp(r'```(?:json)?\s*([\s\S]*?)```').firstMatch(t);
     if (fence != null) t = fence.group(1)!.trim();
     try {
@@ -58,6 +58,49 @@ class ReelParser {
       if (salvaged.isNotEmpty) return {'reels': salvaged};
     }
     return null;
+  }
+
+  /// LaTeX commands that start with a valid JSON escape letter (\b \f \n \r \t).
+  static const _latexCommands = {
+    'b': ['beta', 'bar', 'bf', 'binom', 'begin', 'big', 'bigg', 'bullet', 'boxed', 'bmod', 'backslash', 'bot'],
+    'f': ['frac', 'forall', 'flat', 'frak'],
+    'n': ['nu', 'neq', 'nabla', 'not', 'ne', 'neg', 'nmid', 'nleq', 'ngeq', 'notin', 'nexists'],
+    'r': ['rho', 'right', 'rightarrow', 'rangle', 'rceil', 'rfloor', 'rm', 'Re'],
+    't': [
+      'theta',
+      'times',
+      'text',
+      'textbf',
+      'textit',
+      'tan',
+      'tanh',
+      'tau',
+      'to',
+      'top',
+      'tilde',
+      'triangle',
+      'tfrac',
+      'therefore',
+      'textrm',
+    ],
+  };
+
+  /// Models often write LaTeX with single backslashes inside JSON strings.
+  /// `\sqrt` is an invalid JSON escape (the whole reply fails to parse) and
+  /// `\frac` silently becomes a form feed + "rac". This doubles such
+  /// backslashes before decoding.
+  static String repairLatexEscapes(String text) {
+    // Invalid escapes: backslash followed by anything that is not a JSON escape character.
+    var out = text.replaceAllMapped(RegExp(r'(?<!\\)((?:\\\\)*)\\([^"\\/bfnrtu])'), (m) => '${m[1]}\\\\${m[2]}');
+    // Valid-looking escapes that are really LaTeX commands, e.g. \frac, \theta, \nabla.
+    _latexCommands.forEach((letter, words) {
+      final alternatives = words.map((w) => w.substring(1)).join('|');
+      out = out.replaceAllMapped(
+        RegExp('(?<!\\\\)((?:\\\\\\\\)*)\\\\$letter($alternatives)(?![A-Za-z])'),
+        (m) => '${m[1]}\\\\$letter${m[2]}',
+      );
+    });
+    return out;
   }
 
   static List<Object?> _salvageObjects(String t) {
@@ -110,7 +153,6 @@ class ReelParser {
     } else {
       return const [];
     }
-    final allowed = job.reelTypes.toSet();
     final reels = <Reel>[];
     for (var i = 0; i < rawList.length; i++) {
       final raw = jMap(rawList[i]);
@@ -119,7 +161,8 @@ class ReelParser {
       if (type == 'truefalse') type = 'true_false';
       if (type.isEmpty && i < job.reelTypes.length) type = job.reelTypes[i];
       final spec = ReelTypes.byId(type);
-      if (spec == null || (allowed.isNotEmpty && !allowed.contains(type) && job.focus == null)) continue;
+      // Other known types are accepted too: the model may swap a type that does not fit the material.
+      if (spec == null) continue;
       final data = spec.normalize(raw);
       if (data == null) continue;
       reels.add(
@@ -133,6 +176,7 @@ class ReelParser {
           generator: generator,
           difficulty: job.difficulty,
           parentReelId: job.parentReelId,
+          language: job.language,
         ),
       );
     }

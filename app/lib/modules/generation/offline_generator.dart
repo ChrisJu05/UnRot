@@ -1,8 +1,11 @@
 import 'dart:math';
 
+import '../../core/models/chunk.dart';
 import '../../core/models/reel.dart';
 import '../../core/util/ids.dart';
 import '../reels/reel_types.dart';
+import '../visuals/expression.dart';
+import '../visuals/visual_spec.dart';
 import '../ingestion/chunker.dart';
 import 'generation_job.dart';
 
@@ -18,7 +21,7 @@ class OfflineReelGenerator implements ReelGenerator {
   @override
   Future<List<Reel>> generate(GenerationJob job) async {
     if (job.focus != null) return _deepDive(job);
-    final analysis = _Analysis(job.chunk.text);
+    final analysis = _Analysis(job.chunk.text.replaceAll(figureMarker, ' '));
     final random = Random(job.chunk.id.hashCode ^ job.existingSummaries.length ^ (job.focus?.hashCode ?? 0));
     final reels = <Reel>[];
     final usedSentences = <String>{...job.existingSummaries.map((s) => s.replaceAll('…', ''))};
@@ -38,44 +41,19 @@ class OfflineReelGenerator implements ReelGenerator {
         createdAt: DateTime.now(),
       ).summary;
       if (!seen.add('$type|$summary') || !seen.add(summary)) continue;
-      reels.add(
-        Reel(
-          id: newId('r'),
-          sourceId: job.source.id,
-          chunkId: job.chunk.id,
-          type: type,
-          data: data,
-          createdAt: DateTime.now(),
-          generator: id,
-          difficulty: job.difficulty,
-          parentReelId: job.parentReelId,
-        ),
-      );
+      reels.add(_make(job, type, data));
     }
     if (reels.isEmpty) {
       // Always produce at least an explainer.
       final data = _build('explainer', job, analysis, random, <String>{}, 0);
-      if (data != null) {
-        reels.add(
-          Reel(
-            id: newId('r'),
-            sourceId: job.source.id,
-            chunkId: job.chunk.id,
-            type: 'explainer',
-            data: data,
-            createdAt: DateTime.now(),
-            generator: id,
-            difficulty: job.difficulty,
-          ),
-        );
-      }
+      if (data != null) reels.add(_make(job, 'explainer', data));
     }
     return reels;
   }
 
   Map<String, dynamic>? _build(String type, GenerationJob job, _Analysis a, Random rnd, Set<String> used, int variant) {
     final maxWords = job.settings.maxWordsPerReel;
-    final de = a.isGerman;
+    final de = _german(job, a);
     String pickSentence({bool withKeyword = false}) {
       final candidates = a.sentences
           .where((s) => !used.any((u) => u.isNotEmpty && s.startsWith(u.substring(0, min(30, u.length)))))
@@ -175,6 +153,8 @@ class OfflineReelGenerator implements ReelGenerator {
           'model_answer': points.map((s) => '• ${_limitWords(s, 25)}').join('\n'),
           'key_terms': a.keywords.take(5).toList(),
         };
+      case 'visual':
+        return _visual(job, a, variant);
       case 'mnemonic':
         final offset = a.keywords.length <= 4 ? 0 : (variant * 3) % (a.keywords.length - 3);
         final terms = a.keywords.skip(offset).take(4).toList();
@@ -193,7 +173,7 @@ class OfflineReelGenerator implements ReelGenerator {
 
   /// "Explain more" without AI: surface the sentences around the focused content.
   List<Reel> _deepDive(GenerationJob job) {
-    final a = _Analysis(job.chunk.text);
+    final a = _Analysis(job.chunk.text.replaceAll(figureMarker, ' '));
     if (a.sentences.isEmpty) return const [];
     final focusWords = RegExp(r"[A-Za-zÀ-ž]{4,}").allMatches(job.focus!.toLowerCase()).map((m) => m[0]!).toSet();
     int overlap(String s) =>
@@ -204,20 +184,10 @@ class OfflineReelGenerator implements ReelGenerator {
     }
     final from = max(0, best - 1);
     final context = a.sentences.sublist(from, min(a.sentences.length, best + 3));
-    final de = a.isGerman;
+    final de = _german(job, a);
     final maxWords = job.settings.maxWordsPerReel;
     final title = job.chunk.title.replaceAll(RegExp(r'^#+\s*'), '');
-    Reel make(String type, Map<String, dynamic> data) => Reel(
-      id: newId('r'),
-      sourceId: job.source.id,
-      chunkId: job.chunk.id,
-      type: type,
-      data: data,
-      createdAt: DateTime.now(),
-      generator: id,
-      difficulty: job.difficulty,
-      parentReelId: job.parentReelId,
-    );
+    Reel make(String type, Map<String, dynamic> data) => _make(job, type, data);
     final reels = <Reel>[
       make('explainer', {
         'title': de ? 'Genauer hingeschaut: $title' : 'Deep dive: $title',
@@ -254,6 +224,106 @@ class OfflineReelGenerator implements ReelGenerator {
     }
     return reels.where((r) => ReelTypes.byId(r.type)?.normalize(Map.of(r.data)) != null).toList();
   }
+
+  static final _functionRe = RegExp(
+    r'\b([A-Za-z])\s*\(\s*([a-z])\s*\)\s*=\s*([^,;\n]+?)(?=\s*(?:[,;]|\.(?:\s|$)|(?:where|wobei|with|mit|for|für)\b|$))',
+  );
+  static final _yEqualsRe = RegExp(r'(?<![A-Za-z])y\s*=\s*([0-9x+\-*/^(). ]*x[0-9x+\-*/^(). ]*)');
+
+  /// Offline visuals: a figure from the section, or a plot of a formula found in the text.
+  Map<String, dynamic>? _visual(GenerationJob job, _Analysis a, int variant) {
+    final de = _german(job, a);
+    final images = job.chunk.images;
+    if (images.isNotEmpty) {
+      final img = images[variant % images.length];
+      final caption = img.caption.isNotEmpty ? img.caption : (a.bestSentence ?? job.chunk.title);
+      return VisualNormalizer.normalize({
+        'title': de ? 'Abbildung: ${job.chunk.title}' : 'Figure: ${job.chunk.title}',
+        'caption': _limitWords(caption, job.settings.maxWordsPerReel),
+        'visual': {'kind': 'image', 'image_id': img.id, 'alt': img.caption},
+      });
+    }
+    final text = job.chunk.text.replaceAll(figureMarker, ' ');
+    String? expr;
+    String variable = 'x';
+    String label = 'y';
+    String sentence = '';
+    final f = _functionRe.firstMatch(text);
+    if (f != null) {
+      variable = f[2]!;
+      label = '${f[1]}(${f[2]})';
+      expr = f[3]!.trim().replaceAll(RegExp('\\b${RegExp.escape(variable)}\\b'), 'x');
+      sentence = a.sentences.firstWhere((s) => s.contains(f[0]!.trim()), orElse: () => '');
+    } else {
+      final y = _yEqualsRe.firstMatch(text);
+      if (y != null) {
+        expr = y[1]!.trim();
+        sentence = a.sentences.firstWhere((s) => s.contains(y[0]!.trim()), orElse: () => '');
+      }
+    }
+    if (expr == null) return null;
+    final parsed = Expression.tryParse(expr.replaceAll('·', '*'));
+    if (parsed == null) return null;
+    final params = parsed.variables.difference({'x'}).where((v) => v.length <= 3).take(3).toList();
+    if (parsed.variables.difference({'x'}).length != params.length) return null;
+    final positive = variable == 't' || RegExp(r'sqrt|ln|log').hasMatch(expr);
+    final data = VisualNormalizer.normalize({
+      'title': de ? 'Spiel mit der Formel $label' : 'Explore $label',
+      'caption': sentence.isEmpty
+          ? (de ? 'Bewege die Regler und beobachte die Kurve.' : 'Move the controls and watch the curve change.')
+          : _limitWords(sentence, job.settings.maxWordsPerReel),
+      'visual': {
+        'kind': 'function_plot',
+        'x_min': positive ? 0 : -5,
+        'x_max': positive ? 10 : 5,
+        'x_label': variable,
+        'y_label': label,
+        'functions': [
+          {'expr': expr, 'label': label},
+        ],
+      },
+      'controls': [
+        for (final p in params)
+          {
+            'kind': params.length > 1 && p == params.last ? 'dial' : 'slider',
+            'param': p,
+            'label': p,
+            'min': 0.1,
+            'max': 10,
+            'step': 0.1,
+            'value': 2,
+          },
+      ],
+    });
+    // Reject formulas that do not produce a curve.
+    if (data == null) return null;
+    final vars = {for (final p in params) p: 2.0};
+    final samples = [
+      for (var i = 0; i <= 10; i++) parsed.eval({...vars, 'x': (positive ? 0 : -5) + i * (positive ? 1.0 : 1.0)}),
+    ];
+    return samples.where((v) => v.isFinite).length >= 5 ? data : null;
+  }
+
+  Reel _make(GenerationJob job, String type, Map<String, dynamic> data) => Reel(
+    id: newId('r'),
+    sourceId: job.source.id,
+    chunkId: job.chunk.id,
+    type: type,
+    data: data,
+    createdAt: DateTime.now(),
+    generator: id,
+    difficulty: job.difficulty,
+    parentReelId: job.parentReelId,
+    language: job.language,
+  );
+
+  /// The offline generator cannot translate; it only picks German or English
+  /// phrasing for its own templates.
+  static bool _german(GenerationJob job, _Analysis a) => switch (job.language) {
+    'Deutsch' => true,
+    'source' => a.isGerman,
+    _ => false,
+  };
 
   static String _limitWords(String text, int maxWords) {
     final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();

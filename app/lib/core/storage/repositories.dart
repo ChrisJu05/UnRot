@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/annotation.dart';
@@ -65,9 +67,27 @@ class LibraryRepository extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Saves figure files for a source (`images/<sourceId>/<file>`).
+  Future<void> saveImages(String sourceId, Map<String, List<int>> files) async {
+    for (final e in files.entries) {
+      await _store.writeBytes('images/$sourceId/${e.key}', e.value);
+    }
+  }
+
+  /// File of a figure referenced by reels (`img3`), or null if unknown.
+  File? imageFile(String sourceId, String imageId) {
+    for (final c in chunks(sourceId)) {
+      for (final img in c.images) {
+        if (img.id == imageId) return _store.file('images/$sourceId/${img.file}');
+      }
+    }
+    return null;
+  }
+
   Future<void> removeSource(String id) async {
     _sources.removeWhere((s) => s.id == id);
     _chunks.remove(id);
+    await _store.deleteDirectory('images/$id');
     await _store.delete('chunks/$id.json');
     await _saveIndex();
     notifyListeners();

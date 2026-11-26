@@ -32,6 +32,7 @@ class AiReelGenerator implements ReelGenerator {
       system: prompts.system(job),
       prompt: prompts.user(job),
       jsonSchema: prompts.schema(job),
+      jsonOutput: true,
       maxOutputTokens: maxOutputTokens,
     );
     final response = await provider.complete(request, config, apiKey);

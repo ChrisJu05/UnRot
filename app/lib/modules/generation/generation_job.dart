@@ -39,6 +39,15 @@ class GenerationJob {
   final String? focus;
   final String? parentReelId;
 
+  /// Effective reel language: `source` or a language name.
+  String get language => effectiveLanguage(source, settings);
+
+  /// Per-source language wins over the app-wide default.
+  static String effectiveLanguage(StudySource source, GenerationSettings settings) {
+    final perSource = source.study.reelLanguage;
+    return perSource.isEmpty || perSource == 'default' ? settings.language : perSource;
+  }
+
   /// 1 = easy, 2 = medium, 3 = hard.
   int get difficulty {
     switch (settings.difficulty) {

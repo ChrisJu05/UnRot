@@ -1,6 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 
-/// Renders text with `**bold**` and `*italic*` markers as styled spans.
+import '../visuals/math_text.dart';
+
+/// Renders text with `**bold**`, `*italic*` and LaTeX math (`$…$`, `$$…$$`).
 class MarkupText extends StatelessWidget {
   const MarkupText(this.text, {super.key, this.style, this.textAlign = TextAlign.start, this.maxLines});
 
@@ -9,11 +11,42 @@ class MarkupText extends StatelessWidget {
   final TextAlign textAlign;
   final int? maxLines;
 
+  static final _emphasis = RegExp(r'\*\*(.+?)\*\*|(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])');
+
   static List<InlineSpan> spans(String text, TextStyle base, {Color? accent}) {
     final result = <InlineSpan>[];
-    final re = RegExp(r'\*\*(.+?)\*\*|(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])');
+    for (final segment in splitMath(text)) {
+      if (segment.isMath) {
+        if (segment.display) {
+          result.add(const TextSpan(text: '\n'));
+          result.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: MathTex(segment.text, style: base, display: true),
+              ),
+            ),
+          );
+          result.add(const TextSpan(text: '\n'));
+        } else {
+          result.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: MathTex(segment.text, style: base),
+            ),
+          );
+        }
+        continue;
+      }
+      _emphasisSpans(segment.text, accent, result);
+    }
+    return result;
+  }
+
+  static void _emphasisSpans(String text, Color? accent, List<InlineSpan> result) {
     var last = 0;
-    for (final m in re.allMatches(text)) {
+    for (final m in _emphasis.allMatches(text)) {
       if (m.start > last) result.add(TextSpan(text: text.substring(last, m.start)));
       if (m.group(1) != null) {
         result.add(
@@ -33,7 +66,6 @@ class MarkupText extends StatelessWidget {
       last = m.end;
     }
     if (last < text.length) result.add(TextSpan(text: text.substring(last)));
-    return result;
   }
 
   @override

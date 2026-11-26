@@ -21,6 +21,26 @@ ExtractorRegistry defaultExtractorRegistry({bool allowPdfSystemFallback = true})
   PdfTextExtractor(allowSystemFallback: allowPdfSystemFallback),
 ]);
 
+/// Links figure markers in each chunk's text to the extracted image files.
+List<SourceChunk> attachImages(List<SourceChunk> chunks, List<ExtractedImage> images) {
+  if (images.isEmpty) return chunks;
+  final byId = {for (final img in images) img.id: img};
+  return [
+    for (final c in chunks)
+      c.copyWith(
+        images: [
+          for (final m in figureMarker.allMatches(c.text))
+            if (byId[m[1]] != null)
+              ChunkImage(
+                id: m[1]!,
+                file: '${m[1]}.${byId[m[1]]!.extension}',
+                caption: (m[2] ?? '').trim().isNotEmpty ? m[2]!.trim() : byId[m[1]]!.caption,
+              ),
+        ],
+      ),
+  ];
+}
+
 class ImportResult {
   ImportResult(this.source, this.chunks, this.warnings);
   final StudySource source;
@@ -55,7 +75,7 @@ class IngestionService {
         throw ExtractionException('Unsupported file type. Supported: ${registry.supportedExtensions.join(', ')}');
       }
       final doc = await extractor.extract(bytes, fileName: fileName);
-      final chunks = const Chunker().chunk(sourceId, doc.text, fallbackTitle: 'Part');
+      final chunks = attachImages(const Chunker().chunk(sourceId, doc.text, fallbackTitle: 'Part'), doc.images);
       return _Extracted(extractor.formatId, doc, chunks);
     });
     if (extracted.chunks.isEmpty) throw ExtractionException('No usable text found in "$fileName".');
@@ -67,6 +87,13 @@ class IngestionService {
       addedAt: DateTime.now(),
       study: study,
     );
+    // Store the figures that ended up in sections.
+    final byId = {for (final img in extracted.document.images) img.id: img};
+    await _library.saveImages(sourceId, {
+      for (final c in extracted.chunks)
+        for (final img in c.images)
+          if (byId[img.id] != null) img.file: byId[img.id]!.bytes,
+    });
     await _library.addSource(source, extracted.chunks);
     return ImportResult(source, extracted.chunks, extracted.document.warnings);
   }
