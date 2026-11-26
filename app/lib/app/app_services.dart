@@ -10,6 +10,8 @@ import '../modules/ai/provider_registry.dart';
 import '../modules/feed/feed_engine.dart';
 import '../modules/generation/generation_service.dart';
 import '../modules/ingestion/ingestion_service.dart';
+import '../modules/speech/speech_controller.dart';
+import '../modules/speech/speech_engine.dart';
 import '../modules/study/modes/builtin_modes.dart';
 import '../modules/study/progress_tracker.dart';
 import '../modules/study/study_mode.dart';
@@ -33,6 +35,7 @@ class AppServices {
     required this.modes,
     required this.tracker,
     required this.feed,
+    required this.speech,
   });
 
   final Directory dataDirectory;
@@ -48,6 +51,7 @@ class AppServices {
   final StudyModes modes;
   final ProgressTracker tracker;
   final FeedEngine feed;
+  final SpeechController speech;
 
   static Future<Directory> defaultDataDirectory() async {
     final override = Platform.environment['UNROT_DATA_DIR'];
@@ -56,7 +60,7 @@ class AppServices {
     return Directory(base.path);
   }
 
-  static Future<AppServices> create({Directory? directory, SecretStore? secrets}) async {
+  static Future<AppServices> create({Directory? directory, SecretStore? secrets, SpeechEngine? speechEngine}) async {
     final dir = directory ?? await defaultDataDirectory();
     await dir.create(recursive: true);
     final store = JsonStore(dir);
@@ -85,6 +89,12 @@ class AppServices {
       modes: modes,
       tracker: tracker,
     );
+    feed.onReelsRetired = (ids) => annotations.removeWhere((key) => ids.contains(key.split('#').first));
+    feed.retireExpired();
+    final speech = SpeechController(
+      speechEngine ?? SpeechEngine.forPlatform(),
+      settings: () => settings.settings.audio,
+    );
     return AppServices._(
       dataDirectory: dir,
       store: store,
@@ -99,6 +109,7 @@ class AppServices {
       modes: modes,
       tracker: tracker,
       feed: feed,
+      speech: speech,
     );
   }
 
@@ -113,6 +124,17 @@ class AppServices {
       settings.update((s) => s.feed.focusSourceId = null);
     }
     await library.removeSource(sourceId);
+  }
+
+  /// Removes one document of a collection with its sections, reels, progress and figures.
+  Future<void> removeDocument(String sourceId, String documentId) async {
+    final removed = await library.removeDocument(sourceId, documentId);
+    final chunkIds = removed.map((c) => c.id).toSet();
+    final reelIds = reels.all.where((r) => chunkIds.contains(r.chunkId)).map((r) => r.id).toSet();
+    feed.removeChunks(chunkIds);
+    progress.removeChunks(chunkIds, reelIds);
+    annotations.removeWhere((key) => reelIds.contains(key.split('#').first));
+    reels.removeIds(reelIds);
   }
 
   /// File of a figure extracted from a source (used by visual reels).

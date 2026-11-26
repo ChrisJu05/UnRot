@@ -12,6 +12,7 @@
   * *SDK Tools*: Android SDK Build-Tools, Android SDK Command-line Tools, Android SDK Platform-Tools,
     Android Emulator.
 * Optional: Android Studio's *Flutter* plugin.
+* Target devices need **Android 7.0 (API 24) or newer**.
 * A phone/tablet with **USB debugging** (Settings → About → tap *Build number* 7× → Developer options → USB
   debugging), or an emulator (Android Studio → *Device Manager*).
 
@@ -95,4 +96,5 @@ annotate reels while fingers keep swiping.
 | `Android license status unknown` | `flutter doctor --android-licenses` |
 | Gradle/JDK version errors | Use the JDK bundled with Android Studio: `flutter config --jdk-dir "<Android Studio>/jbr"` |
 | AI works in debug but not in release | The `INTERNET` permission must be in `src/main/AndroidManifest.xml` (already added). |
+| Read aloud says nothing | A text-to-speech engine must be installed (Google Speech Services on most phones; *Settings → Accessibility → Text-to-speech output*). Install the voice data for German/English there. The manifest already declares the `TTS_SERVICE` query that Android 11+ requires. |
 | `Cleartext HTTP traffic not permitted` | See "Using a local AI server" above. |

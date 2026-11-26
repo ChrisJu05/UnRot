@@ -1,6 +1,8 @@
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../theme/app_theme.dart';
+
 /// Repairs LaTeX that lost its backslashes to JSON escapes (\f, \b, \t, \n, \r).
 String repairLatex(String latex) => latex
     .replaceAll('\f', r'\f')
@@ -24,7 +26,7 @@ class MathTex extends StatelessWidget {
       repairLatex(latex.trim()),
       mathStyle: display ? MathStyle.display : MathStyle.text,
       textStyle: base.copyWith(fontWeight: FontWeight.normal),
-      onErrorFallback: (_) => Text(latex, style: base.copyWith(fontFamily: 'monospace')),
+      onErrorFallback: (_) => Text(latex, style: AppTheme.monoStyle.merge(base)),
     );
     if (!display) return math;
     // Wide formulas scroll horizontally instead of overflowing.

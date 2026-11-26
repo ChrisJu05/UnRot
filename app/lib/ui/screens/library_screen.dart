@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/util/text.dart';
 import '../../app/app_services.dart';
 import '../../core/models/source.dart';
 import '../../core/storage/repositories.dart';
@@ -99,7 +100,11 @@ class _SourceCard extends StatelessWidget {
                       strokeWidth: 5,
                       backgroundColor: theme.colorScheme.surfaceContainerHighest,
                     ),
-                    Icon(LibraryScreen.formatIcons[source.format] ?? Icons.article_outlined),
+                    Icon(
+                      source.isCollection || source.format == 'collection'
+                          ? Icons.collections_bookmark_outlined
+                          : (LibraryScreen.formatIcons[source.format] ?? Icons.article_outlined),
+                    ),
                   ],
                 ),
               ),
@@ -116,7 +121,8 @@ class _SourceCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${source.chunkCount} sections · ${(completion * 100).round()}% done',
+                      '${source.isCollection ? '${source.documents.length} documents · ' : ''}'
+                      '${plural(source.chunkCount, 'section')} · ${(completion * 100).round()}% done',
                       style: theme.textTheme.bodySmall,
                     ),
                     const SizedBox(height: 8),

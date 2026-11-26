@@ -26,6 +26,19 @@ Uint8List _zip(Map<String, String> files) {
 
 void main() {
   group('Chunker', () {
+    test('a long one-line "# heading" is split into title and text', () {
+      final chunks = const Chunker().chunk(
+        's',
+        '# Aufgabe 1: Faltung zweier Rechtecke. Berechnen Sie die Faltung zweier gleich breiter Rechteckimpulse. '
+            'Das Ergebnis ist ein Dreieckimpuls, dessen Breite doppelt so groß ist.',
+      );
+      expect(chunks, hasLength(1));
+      expect(chunks.single.title, 'Aufgabe 1: Faltung zweier Rechtecke');
+      expect(chunks.single.text, contains('Dreieckimpuls'));
+      final noSentence = const Chunker().chunk('s', '# ${List.filled(30, 'word').join(' ')}');
+      expect(noSentence.single.text, startsWith('word word'));
+    });
+
     test('splits on markdown headings and keeps the heading path', () {
       final text = [
         '# Biology',

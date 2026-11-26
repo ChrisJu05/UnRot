@@ -60,6 +60,7 @@ class _UnRotAppState extends State<UnRotApp> with WidgetsBindingObserver {
         ChangeNotifierProvider.value(value: s.progress),
         ChangeNotifierProvider.value(value: s.annotations),
         ChangeNotifierProvider.value(value: s.feed),
+        ChangeNotifierProvider.value(value: s.speech),
       ],
       child: MaterialApp(
         title: 'UnRot',

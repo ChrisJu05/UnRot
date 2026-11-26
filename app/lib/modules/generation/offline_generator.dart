@@ -155,6 +155,14 @@ class OfflineReelGenerator implements ReelGenerator {
         };
       case 'visual':
         return _visual(job, a, variant);
+      case 'theorem':
+        return _theorem(job, a);
+      case 'math_recipe':
+        return _recipe(job, a);
+      case 'formula':
+        return _formula(job, a);
+      case 'calc_exercise':
+        return _calc(job, a, variant);
       case 'mnemonic':
         final offset = a.keywords.length <= 4 ? 0 : (variant * 3) % (a.keywords.length - 3);
         final terms = a.keywords.skip(offset).take(4).toList();
@@ -229,6 +237,160 @@ class OfflineReelGenerator implements ReelGenerator {
     r'\b([A-Za-z])\s*\(\s*([a-z])\s*\)\s*=\s*([^,;\n]+?)(?=\s*(?:[,;]|\.(?:\s|$)|(?:where|wobei|with|mit|for|für)\b|$))',
   );
   static final _yEqualsRe = RegExp(r'(?<![A-Za-z])y\s*=\s*([0-9x+\-*/^(). ]*x[0-9x+\-*/^(). ]*)');
+
+  static final _theoremRe = RegExp(
+    r'(?:^|\n)\s*(?:\*\*)?(Satz|Theorem|Lemma|Gesetz|Law|Korollar|Corollary|Proposition|Hauptsatz)\b\s*(\d+(?:\.\d+)*)?\s*(?:\(([^)]{2,60})\))?\s*(?:\*\*)?\s*[:.]\s*([^\n]{15,600})',
+  );
+  static final _namedLawRe = RegExp(
+    r"((?:[A-Z][\wäöüÄÖÜß'-]*\s){0,3}(?:law|theorem|principle|rule|Gesetz|Satz|Prinzip|Regel|Theorem))\s+(?:states that|says that|besagt,? dass|besagt|lautet)\s+([^.!?]{10,300}[.!?])",
+  );
+
+  /// Offline theorem: "Satz 3.2 (Name): …" or "Ohm's law states that …".
+  Map<String, dynamic>? _theorem(GenerationJob job, _Analysis a) {
+    final text = job.chunk.text.replaceAll(figureMarker, ' ');
+    final de = _german(job, a);
+    final m = _theoremRe.firstMatch(text);
+    if (m != null) {
+      final kind = m[1]!;
+      final name = m[3] ?? (m[2] != null ? '$kind ${m[2]}' : job.chunk.title);
+      final statement = _limitWords(m[4]!.trim(), 70);
+      final assumptions = splitSentences(statement)
+          .where((s) => RegExp(r'^(Sei|Seien|Es sei|Let|Suppose|Assume|Falls|If|Ist|Gegeben)\b').hasMatch(s))
+          .toList();
+      return {
+        'kind': kind,
+        'name': name,
+        'assumptions': assumptions,
+        'statement': statement,
+        'formula': '',
+        'intuition': '',
+        'proof_idea': '',
+        'example': '',
+      };
+    }
+    final law = _namedLawRe.firstMatch(text);
+    if (law == null) return null;
+    final name = law[1]!.trim();
+    return {
+      'kind': RegExp(r'Gesetz|law', caseSensitive: false).hasMatch(name)
+          ? (de ? 'Gesetz' : 'Law')
+          : (de ? 'Satz' : 'Theorem'),
+      'name': name[0].toUpperCase() + name.substring(1),
+      'assumptions': const <String>[],
+      'statement': _limitWords(law[2]!.trim(), 70),
+      'formula': '',
+      'intuition': '',
+      'proof_idea': '',
+      'example': '',
+    };
+  }
+
+  /// Offline recipe: a numbered list of at least three steps.
+  Map<String, dynamic>? _recipe(GenerationJob job, _Analysis a) {
+    final lines = job.chunk.text.split('\n');
+    final steps = <String>[];
+    String? before;
+    for (final line in lines) {
+      final m = RegExp(r'^\s*(?:(?:Schritt|Step)\s*)?(\d{1,2})[.):]\s+(.{3,})$').firstMatch(line);
+      if (m != null) {
+        steps.add(m[2]!.trim());
+      } else if (steps.length < 3) {
+        if (steps.isNotEmpty) steps.clear();
+        if (line.trim().isNotEmpty) before = line.trim();
+      } else {
+        break;
+      }
+    }
+    if (steps.length < 3) return null;
+    return {
+      'title': job.chunk.title,
+      'goal': before == null ? '' : _limitWords(before, 30),
+      'when_to_use': '',
+      'steps': [
+        for (final st in steps.take(8)) {'action': _limitWords(st, 30), 'latex': ''},
+      ],
+      'example': {'problem': '', 'steps': const <String>[], 'result': ''},
+      'pitfalls': const <String>[],
+    };
+  }
+
+  /// A formula like "R(t) = e^(-t/S), where R is …, t is … and S is …".
+  _Formula? _findFormula(GenerationJob job, _Analysis a) {
+    final text = job.chunk.text.replaceAll(figureMarker, ' ');
+    final f = _functionRe.firstMatch(text);
+    if (f == null) return null;
+    final expr = f[3]!.trim();
+    if (Expression.tryParse(expr.replaceAll('·', '*')) == null) return null;
+    final symbols = <String, String>{};
+    final after = text.substring(f.end);
+    final clause = RegExp(r'^[,\s]*(?:where|wobei|with|mit)\s+([^.]+)').firstMatch(after);
+    if (clause != null) {
+      for (final part in clause[1]!.split(RegExp(r',\s*|\s+and\s+|\s+und\s+'))) {
+        final m = RegExp(
+          r'^([A-Za-z]\w?)\s+(?:is|are|ist|sind|denotes|bezeichnet)\s+(?:the\s+|die\s+|der\s+|das\s+)?(.+)$',
+        ).firstMatch(part.trim());
+        if (m != null) symbols[m[1]!] = m[2]!.trim();
+      }
+    }
+    return _Formula('${f[1]}(${f[2]})', f[2]!, expr, symbols);
+  }
+
+  static String _toLatex(String expr) => expr
+      .replaceAllMapped(RegExp(r'\^\(([^()]*)\)'), (m) => '^{${m[1]}}')
+      .replaceAll('*', r' \cdot ')
+      .replaceAll('·', r' \cdot ');
+
+  Map<String, dynamic>? _formula(GenerationJob job, _Analysis a) {
+    final f = _findFormula(job, a);
+    if (f == null || f.symbols.isEmpty) return null;
+    return {
+      'name': job.chunk.title,
+      'latex': '${f.label} = ${_toLatex(f.expr)}',
+      'symbols': [
+        for (final e in f.symbols.entries) {'symbol': e.key, 'meaning': _limitWords(e.value, 15), 'unit': ''},
+      ],
+      'conditions': '',
+      'intuition': '',
+    };
+  }
+
+  /// Offline calculation: insert values into a formula found in the text.
+  Map<String, dynamic>? _calc(GenerationJob job, _Analysis a, int variant) {
+    final f = _findFormula(job, a);
+    if (f == null) return null;
+    final parsed = Expression.tryParse(f.expr.replaceAll('·', '*'));
+    if (parsed == null) return null;
+    final rnd = Random(job.chunk.id.hashCode ^ variant);
+    final names = parsed.variables.toList()..sort();
+    if (names.length > 4) return null;
+    final values = {for (final n in names) n: (1 + rnd.nextInt(5)).toDouble()};
+    final answer = parsed.eval(values);
+    if (!answer.isFinite) return null;
+    final de = _german(job, a);
+    final assignments = names.map((n) => '$n = ${formatNumber(values[n]!)}').join(', ');
+    var substituted = f.expr;
+    for (final n in names) {
+      substituted = substituted.replaceAll(RegExp('\\b$n\\b'), '(${formatNumber(values[n]!)})');
+    }
+    return {
+      'problem': de
+          ? 'Berechne ${f.label} = ${f.expr} für $assignments.'
+          : 'Compute ${f.label} = ${f.expr} for $assignments.',
+      'given': [
+        for (final n in names) {'symbol': n, 'value': formatNumber(values[n]!), 'unit': ''},
+      ],
+      'asked': f.label,
+      'answer': answer,
+      'unit': '',
+      'tolerance': 0.01,
+      'hint': de ? 'Setze die Werte in die Formel ein.' : 'Insert the values into the formula.',
+      'solution': [
+        '\$${f.label} = ${_toLatex(f.expr)}\$',
+        '\$${f.label} = ${_toLatex(substituted)}\$',
+        '\$${f.label} \\approx ${formatNumber(answer, decimals: 4)}\$',
+      ],
+    };
+  }
 
   /// Offline visuals: a figure from the section, or a plot of a formula found in the text.
   Map<String, dynamic>? _visual(GenerationJob job, _Analysis a, int variant) {
@@ -706,3 +868,11 @@ const _deStop = {
   'somit',
   'also',
 };
+
+class _Formula {
+  _Formula(this.label, this.variable, this.expr, this.symbols);
+  final String label;
+  final String variable;
+  final String expr;
+  final Map<String, String> symbols;
+}

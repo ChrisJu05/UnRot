@@ -11,6 +11,9 @@
   **"Desktop development with C++"**. Keep the default components (MSVC compiler, C++ CMake tools for Windows, and
   a Windows 10/11 SDK).
 * **Developer Mode** enabled (Flutter plugins use symlinks): run `start ms-settings:developers` and switch it on.
+* **NuGet CLI** (`nuget.exe`) on the `PATH`: the text-to-speech plugin (read aloud) downloads C++/WinRT with it
+  during the build. Install it with `winget install Microsoft.NuGet`, or download `nuget.exe` from
+  <https://www.nuget.org/downloads> into a folder that is on your `PATH`, and check with `nuget help`.
 
 ## 2. Install Flutter
 
@@ -83,6 +86,8 @@ erases, and *Settings → Pen & stylus → Stylus only* enables palm rejection o
 | Problem | Fix |
 |---|---|
 | `Building with plugins requires symlink support` | Enable Developer Mode (see requirements). |
+| `nuget.exe not found. Please install it.` | Install the NuGet CLI (see requirements) and open a new terminal. |
+| No sound when reading aloud | Read aloud uses the Windows voices (*Settings → Time & language → Speech*). Install a German or English voice there if the reel's language has none. |
 | `Unable to find suitable Visual Studio toolchain` | Install the "Desktop development with C++" workload, then rerun `flutter doctor`. |
 | PDF text is missing | Optional: install [poppler for Windows](https://github.com/oschwartz10612/poppler-windows/releases), add its `bin` folder to `PATH`, and keep *Settings → Data → Use system pdftotext* on. |
 | Windows Defender SmartScreen warns on first start | Expected for unsigned builds; sign the exe/MSIX with a code-signing certificate for distribution. |

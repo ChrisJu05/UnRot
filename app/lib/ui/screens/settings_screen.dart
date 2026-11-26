@@ -13,6 +13,8 @@ import '../../modules/ai/ai_provider.dart';
 import '../../modules/ai/provider_registry.dart';
 import '../../modules/ai/providers/openai_provider.dart';
 import '../../modules/reels/reel_types.dart';
+import '../../modules/speech/speech_controller.dart';
+import '../../modules/speech/speech_engine.dart';
 import '../pen/pen_canvas.dart';
 import '../widgets/readable_width.dart';
 
@@ -30,6 +32,7 @@ class SettingsScreen extends StatelessWidget {
             _Section(title: 'AI provider', icon: Icons.smart_toy_outlined, child: _AiSettings()),
             _Section(title: 'Reel generation', icon: Icons.auto_awesome_outlined, child: _GenerationSettings()),
             _Section(title: 'Feed', icon: Icons.dynamic_feed_outlined, child: _FeedSettings()),
+            _Section(title: 'Audio', icon: Icons.headphones_outlined, child: _AudioSettings()),
             _Section(title: 'Pen & stylus', icon: Icons.draw_outlined, child: _PenSettings()),
             _Section(title: 'Data', icon: Icons.storage_outlined, child: _DataSettings()),
           ],
@@ -257,6 +260,36 @@ class _AiSettingsState extends State<_AiSettings> {
             ),
           ],
           const SizedBox(height: 12),
+          Builder(
+            builder: (context) {
+              final limit = repo.settings.generation.maxAiRequestsPerDay;
+              final used = services.progress.stats.aiRequestsOn(DateTime.now());
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    limit == 0
+                        ? 'Daily AI request limit: unlimited (today: $used)'
+                        : 'Daily AI request limit: $limit (today: $used of $limit)',
+                  ),
+                  Slider(
+                    value: limit.toDouble().clamp(0, 200),
+                    min: 0,
+                    max: 200,
+                    divisions: 40,
+                    label: limit == 0 ? 'unlimited' : '$limit',
+                    onChanged: (v) => repo.update((s) => s.generation.maxAiRequestsPerDay = v.round()),
+                  ),
+                  Text(
+                    'When the limit is reached the feed shows saved reels (and offline reels if enabled). '
+                    '0 = unlimited.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              );
+            },
+          ),
           Text('Max output tokens per request: ${ai.maxOutputTokens}'),
           Slider(
             value: ai.maxOutputTokens.toDouble().clamp(2000, 64000),
@@ -537,6 +570,54 @@ class _FeedSettings extends StatelessWidget {
             ],
           ),
         const Divider(),
+        const Text('Saving AI costs', style: TextStyle(fontWeight: FontWeight.w700)),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Show seen reels again'),
+          subtitle: const Text('Re-uses saved reels after a while instead of generating new ones.'),
+          value: f.reuseReels,
+          onChanged: (v) => repo.update((s) => s.feed.reuseReels = v),
+        ),
+        if (f.reuseReels)
+          DropdownButtonFormField<int>(
+            initialValue: const [6, 12, 24, 72, 168].contains(f.reuseAfterHours) ? f.reuseAfterHours : 24,
+            decoration: const InputDecoration(labelText: 'Show a reel again after', border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 6, child: Text('6 hours')),
+              DropdownMenuItem(value: 12, child: Text('12 hours')),
+              DropdownMenuItem(value: 24, child: Text('1 day')),
+              DropdownMenuItem(value: 72, child: Text('3 days')),
+              DropdownMenuItem(value: 168, child: Text('1 week')),
+            ],
+            onChanged: (v) => repo.update((s) => s.feed.reuseAfterHours = v ?? 24),
+          ),
+        const SizedBox(height: 8),
+        Text(
+          f.retireAfterViews == 0
+              ? 'Keep reels forever'
+              : 'Delete a reel after you have seen it ${f.retireAfterViews} times',
+        ),
+        Slider(
+          value: f.retireAfterViews.toDouble().clamp(0, 15),
+          min: 0,
+          max: 15,
+          divisions: 15,
+          label: f.retireAfterViews == 0 ? 'never' : '${f.retireAfterViews}',
+          onChanged: (v) => repo.update((s) => s.feed.retireAfterViews = v.round()),
+        ),
+        Text(
+          'Saved (bookmarked) reels and reels you got wrong last time are kept. '
+          '${services.progress.stats.reelsRetired} reels deleted so far.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const Divider(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Neutral background for math reels'),
+          subtitle: const Text('Calm graph-paper look for formulas, theorems, recipes and plots.'),
+          value: f.neutralMathBackground,
+          onChanged: (v) => repo.update((s) => s.feed.neutralMathBackground = v),
+        ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Use the study mode\'s reel mix'),
@@ -581,6 +662,108 @@ class _FeedSettings extends StatelessWidget {
           },
           icon: const Icon(Icons.refresh),
           label: const Text('Apply to upcoming reels now'),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+class _AudioSettings extends StatefulWidget {
+  const _AudioSettings();
+
+  @override
+  State<_AudioSettings> createState() => _AudioSettingsState();
+}
+
+class _AudioSettingsState extends State<_AudioSettings> {
+  @override
+  void initState() {
+    super.initState();
+    context.read<SpeechController>().checkAvailable();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = context.watch<SettingsRepository>();
+    final speech = context.watch<SpeechController>();
+    final a = repo.settings.audio;
+    final theme = Theme.of(context);
+    final available = speech.available;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              available == false ? Icons.volume_off_outlined : Icons.record_voice_over_outlined,
+              size: 18,
+              color: available == false ? theme.colorScheme.error : null,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                available == null
+                    ? 'Checking the voice…'
+                    : available
+                    ? 'Voice: ${speech.engine.name}'
+                    : 'No voice found.',
+              ),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Test'),
+              onPressed: available == true
+                  ? () => speech.engine.speak(
+                      'Hello! This is how UnRot reads your reels.',
+                      languageCode: 'en-US',
+                      rate: a.rate,
+                    )
+                  : null,
+            ),
+          ],
+        ),
+        if (available == false && speech.engine is CommandSpeechEngine)
+          Text(
+            'Install a speech engine, e.g. "sudo apt install espeak-ng" (Debian/Ubuntu), '
+            '"sudo dnf install espeak-ng" (Fedora) or "sudo pacman -S espeak-ng" (Arch), then restart UnRot.',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+          ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Hands-free: read every reel aloud'),
+          subtitle: const Text('Same as the headphones button in the feed.'),
+          value: a.autoRead,
+          onChanged: (v) => repo.update((s) => s.audio.autoRead = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Continue to the next reel automatically'),
+          subtitle: const Text(
+            'In hands-free mode: questions wait a few seconds for your answer, then the solution is read.',
+          ),
+          value: a.autoAdvance,
+          onChanged: (v) => repo.update((s) => s.audio.autoAdvance = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Read the solution after answering'),
+          value: a.readAnswers,
+          onChanged: (v) => repo.update((s) => s.audio.readAnswers = v),
+        ),
+        Text('Speaking speed: ${a.rate.toStringAsFixed(2)}×'),
+        Slider(
+          value: a.rate,
+          min: 0.5,
+          max: 2.0,
+          divisions: 12,
+          label: '${a.rate.toStringAsFixed(2)}×',
+          onChanged: (v) => repo.update((s) => s.audio.rate = v),
+        ),
+        Text(
+          'Formulas are read in words ("x squared", "integral from 0 to 1"). Reels use the voice of their language.',
+          style: theme.textTheme.bodySmall,
         ),
       ],
     );

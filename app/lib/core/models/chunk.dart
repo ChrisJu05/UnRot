@@ -31,10 +31,14 @@ class SourceChunk {
     required this.text,
     this.headingPath = const [],
     this.images = const [],
+    this.documentId = 'd0',
   });
 
   final String id;
   final String sourceId;
+
+  /// The [SourceDocument] this section comes from.
+  final String documentId;
 
   /// Position inside the source (0-based, reading order).
   final int index;
@@ -59,14 +63,15 @@ class SourceChunk {
     return caption.isEmpty ? '[Figure ${m[1]}]' : '[Figure ${m[1]}: $caption]';
   });
 
-  SourceChunk copyWith({List<ChunkImage>? images}) => SourceChunk(
+  SourceChunk copyWith({List<ChunkImage>? images, int? index}) => SourceChunk(
     id: id,
     sourceId: sourceId,
-    index: index,
+    index: index ?? this.index,
     title: title,
     text: text,
     headingPath: headingPath,
     images: images ?? this.images,
+    documentId: documentId,
   );
 
   Map<String, dynamic> toJson() => {
@@ -77,6 +82,7 @@ class SourceChunk {
     'headingPath': headingPath,
     'text': text,
     if (images.isNotEmpty) 'images': images.map((i) => i.toJson()).toList(),
+    'documentId': documentId,
   };
 
   factory SourceChunk.fromJson(Map<String, dynamic> json) => SourceChunk(
@@ -86,6 +92,7 @@ class SourceChunk {
     title: jString(json['title']),
     headingPath: jStringList(json['headingPath']),
     text: jString(json['text']),
+    documentId: jString(json['documentId'], 'd0'),
     images: (json['images'] is List ? json['images'] as List : const [])
         .map((e) => ChunkImage.fromJson(jMap(e)))
         .toList(),
