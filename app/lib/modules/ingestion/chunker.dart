@@ -113,7 +113,11 @@ class Chunker {
       }
 
       for (final line in lines) {
-        if (line.startsWith('#') || (_looksLikeHeading(line) && buffer.isEmpty)) {
+        if (line.startsWith('[[img:')) {
+          // Figure markers stay on their own.
+          flush();
+          result.add(line);
+        } else if (line.startsWith('#') || (_looksLikeHeading(line) && buffer.isEmpty)) {
           flush();
           result.add(line);
         } else {

@@ -57,6 +57,7 @@ class SourceStudySettings {
     this.feedWeight = 1.0,
     this.examDate,
     this.focusNote = '',
+    this.reelLanguage = 'default',
   });
 
   /// Id of a registered [StudyMode] (`linear`, `exam`, `rote`, `explore`, ...).
@@ -74,6 +75,10 @@ class SourceStudySettings {
   /// Free-text hint for the generator ("focus on formulas", "skip chapter 1").
   String focusNote;
 
+  /// Language of the reels for this source: `default` (app setting), `source`
+  /// (same as the material) or a language name such as `English`.
+  String reelLanguage;
+
   SourceStudySettings copy() => SourceStudySettings.fromJson(toJson());
 
   Map<String, dynamic> toJson() => {
@@ -82,6 +87,7 @@ class SourceStudySettings {
     'feedWeight': feedWeight,
     'examDate': examDate?.toIso8601String(),
     'focusNote': focusNote,
+    'reelLanguage': reelLanguage,
   };
 
   factory SourceStudySettings.fromJson(Map<String, dynamic> json) => SourceStudySettings(
@@ -90,5 +96,6 @@ class SourceStudySettings {
     feedWeight: jDouble(json['feedWeight'], 1.0).clamp(0.0, 10.0),
     examDate: jDate(json['examDate']),
     focusNote: jString(json['focusNote']),
+    reelLanguage: jString(json['reelLanguage'], 'default'),
   );
 }

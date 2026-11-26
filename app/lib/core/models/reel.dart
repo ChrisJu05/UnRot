@@ -15,6 +15,7 @@ class Reel {
     this.generator = 'unknown',
     this.difficulty = 2,
     this.parentReelId,
+    this.language,
   });
 
   final String id;
@@ -34,6 +35,9 @@ class Reel {
 
   /// Set for "explain more" follow-ups.
   final String? parentReelId;
+
+  /// Language the reel was written in (`source` or a language name); null for old reels.
+  final String? language;
 
   String str(String key) => jString(data[key]);
   List<String> list(String key) => jStringList(data[key]);
@@ -57,6 +61,7 @@ class Reel {
     'generator': generator,
     'difficulty': difficulty,
     if (parentReelId != null) 'parentReelId': parentReelId,
+    if (language != null) 'language': language,
   };
 
   factory Reel.fromJson(Map<String, dynamic> json) => Reel(
@@ -69,5 +74,6 @@ class Reel {
     generator: jString(json['generator'], 'unknown'),
     difficulty: jInt(json['difficulty'], 2),
     parentReelId: jStringOrNull(json['parentReelId']),
+    language: jStringOrNull(json['language']),
   );
 }

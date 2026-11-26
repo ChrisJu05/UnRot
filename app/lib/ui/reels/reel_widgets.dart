@@ -8,6 +8,7 @@ import 'question_reels.dart';
 import 'recall_reels.dart';
 import 'reel_common.dart';
 import 'teaching_reels.dart';
+import 'visual_reel.dart';
 
 typedef ReelBodyBuilder = Widget Function(ReelContext ctx);
 
@@ -22,6 +23,7 @@ class ReelWidgets {
     'cloze': (c) => ClozeReel(c),
     'flashcard': (c) => FlashcardReel(c),
     'write_recall': (c) => WriteRecallReel(c),
+    'visual': (c) => VisualReel(c),
   };
 
   static Widget body(ReelContext ctx) {
@@ -29,7 +31,8 @@ class ReelWidgets {
     if (builder == null) {
       return Text('Unsupported reel type "${ctx.reel.type}"', style: reelBodyStyle);
     }
-    return builder(ctx);
+    // Keyed by reel so state is never reused for a different reel.
+    return KeyedSubtree(key: ValueKey('body-${ctx.reel.id}'), child: builder(ctx));
   }
 }
 

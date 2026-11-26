@@ -21,7 +21,11 @@ class PromptBuilder {
 
   String system(GenerationJob job) {
     final s = job.settings;
-    final language = s.language == 'source' ? 'the same language as the source excerpt' : s.language;
+    final lang = job.language;
+    final language = lang == 'source'
+        ? 'the same language as the source excerpt'
+        : '$lang. If the source is in another language, translate everything into $lang; the first time a key '
+              'technical term appears, add the original term in brackets (useful for exams in the original language)';
     return [
       'You are UnRot, an expert tutor who turns study material into short, swipeable, interactive "reels" '
           '(like TikTok or Instagram reels, but for learning).',
@@ -35,7 +39,8 @@ class PromptBuilder {
       s.useEmojis
           ? '- Use at most one fitting emoji per reel (in the "emoji" field where available).'
           : '- Do not use emojis; leave emoji fields empty.',
-      '- You may use **bold** for key terms. No headings, no HTML. Write formulas in plain text (e.g. E = m·c²).',
+      '- You may use **bold** for key terms. No headings, no HTML.',
+      r'- Write math in LaTeX: inline $\frac{a}{b}$, display $$E = mc^2$$. Escape backslashes in JSON ("\\frac").',
       '- Reply with JSON only, exactly in the requested format.',
     ].join('\n');
   }
@@ -101,17 +106,29 @@ class PromptBuilder {
     buffer.writeln();
     buffer.writeln('Return exactly: {"reels": [ ...reel objects... ]}');
     buffer.writeln();
+    if (chunk.images.isNotEmpty) {
+      buffer.writeln(
+        'FIGURES IN THIS SECTION (can be shown with a visual reel of kind "image"; you cannot see them, '
+        'rely on the caption and surrounding text):',
+      );
+      for (final img in chunk.images) {
+        buffer.writeln('  - ${img.id}: ${img.caption.isEmpty ? '(no caption)' : img.caption}');
+      }
+      buffer.writeln();
+    }
     buffer.writeln('SOURCE EXCERPT:');
     buffer.writeln('<<<');
-    buffer.writeln(chunk.text);
+    buffer.writeln(chunk.plainText);
     buffer.writeln('>>>');
     return buffer.toString();
   }
 
   /// JSON schema for structured outputs, restricted to the requested types.
-  Map<String, Object?> schema(GenerationJob job) {
+  /// Null when a requested type is free-form (e.g. visuals).
+  Map<String, Object?>? schema(GenerationJob job) {
     final specs = job.reelTypes.toSet().map(ReelTypes.byId).whereType<ReelTypeSpec>().toList();
-    final items = specs.length == 1 ? specs.first.jsonSchema : {'anyOf': specs.map((s) => s.jsonSchema).toList()};
+    if (specs.isEmpty || specs.any((s) => s.jsonSchema == null)) return null;
+    final items = specs.length == 1 ? specs.first.jsonSchema! : {'anyOf': specs.map((s) => s.jsonSchema!).toList()};
     return {
       'type': 'object',
       'properties': {

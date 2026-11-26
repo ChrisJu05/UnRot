@@ -9,14 +9,25 @@ import '../../core/models/settings.dart';
 
 /// A provider-neutral text generation request.
 class AiRequest {
-  const AiRequest({required this.system, required this.prompt, this.jsonSchema, this.maxOutputTokens = 16000});
+  const AiRequest({
+    required this.system,
+    required this.prompt,
+    this.jsonSchema,
+    this.jsonOutput = false,
+    this.maxOutputTokens = 16000,
+  });
 
   final String system;
   final String prompt;
 
   /// When set, providers that support it constrain the output to this schema.
   final Map<String, Object?>? jsonSchema;
+
+  /// Ask for a JSON reply (JSON mode) even when no schema is given.
+  final bool jsonOutput;
   final int maxOutputTokens;
+
+  bool get wantsJson => jsonOutput || jsonSchema != null;
 }
 
 class AiResponse {

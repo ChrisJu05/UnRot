@@ -45,7 +45,7 @@ class GeminiProvider extends HttpAiProvider {
       ],
       'generationConfig': {
         'maxOutputTokens': request.maxOutputTokens,
-        if (request.jsonSchema != null) 'responseMimeType': 'application/json',
+        if (request.wantsJson) 'responseMimeType': 'application/json',
       },
     };
     final json = await postJson(Uri.parse('${baseUrl(config)}/models/$modelId:generateContent'), {

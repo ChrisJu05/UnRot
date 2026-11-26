@@ -2,7 +2,7 @@
 
 ## The Forgetting Curve
 
-In the 1880s the psychologist **Hermann Ebbinghaus** memorised lists of nonsense syllables and tested himself at different intervals. He found that memory decays quickly at first and then more slowly: much of what we learn is forgotten within a day unless it is reviewed. This pattern is called the forgetting curve. Each time a memory is successfully retrieved, the curve becomes flatter, which means the information is forgotten more slowly afterwards.
+In the 1880s the psychologist **Hermann Ebbinghaus** memorised lists of nonsense syllables and tested himself at different intervals. He found that memory decays quickly at first and then more slowly: much of what we learn is forgotten within a day unless it is reviewed. This pattern is called the forgetting curve. A simple model of it is R(t) = e^(-t/S), where R is the share of information you still remember, t is the time in days and S is the stability of the memory. Each time a memory is successfully retrieved, the curve becomes flatter, which means the information is forgotten more slowly afterwards.
 
 ## Spaced Repetition
 

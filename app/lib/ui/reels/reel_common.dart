@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/models/reel.dart';
@@ -14,6 +16,8 @@ class ReelContext {
     required this.pen,
     required this.annotations,
     required this.memory,
+    this.imageFile,
+    this.allowWebImages = false,
   });
 
   final Reel reel;
@@ -28,6 +32,12 @@ class ReelContext {
 
   /// Session memory so interactions survive scrolling away and back.
   final Map<String, Object?> memory;
+
+  /// Resolves a figure extracted from a source (`img3`) to its file.
+  final File? Function(String sourceId, String imageId)? imageFile;
+
+  /// Whether visuals may load images from the internet.
+  final bool allowWebImages;
 
   T? recall<T>(String key) => memory['${reel.id}.$key'] as T?;
   void remember(String key, Object? value) => memory['${reel.id}.$key'] = value;

@@ -222,6 +222,8 @@ class _FeedScreenState extends State<FeedScreen> {
       memory: _memory,
       onAnswer: (correct) => services.tracker.recordAnswer(reel, correct, DateTime.now()),
       onRate: (rating) => services.tracker.recordRating(reel, rating, DateTime.now()),
+      imageFile: services.sourceImage,
+      allowWebImages: services.settings.settings.generation.allowWebImages,
     );
     Widget? overlay;
     if (_annotating && isCurrent && _annotationPen != null) {

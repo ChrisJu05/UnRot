@@ -49,6 +49,7 @@ class AppTheme {
     'cloze': Icons.text_fields,
     'write_recall': Icons.draw_outlined,
     'mnemonic': Icons.psychology_alt_outlined,
+    'visual': Icons.auto_graph,
   };
 
   static const Map<String, IconData> modeIcons = {

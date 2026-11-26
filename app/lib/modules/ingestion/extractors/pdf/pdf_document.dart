@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../../text_extractor.dart';
+import '../png_encoder.dart';
 import 'pdf_fonts.dart';
 import 'pdf_objects.dart';
 
@@ -9,9 +11,12 @@ class PdfEncryptedException implements Exception {}
 
 /// A line of text on a page with its (device space) font size.
 class PdfTextLine {
-  PdfTextLine(this.fontSize, {this.gapBefore = 0});
+  PdfTextLine(this.fontSize, {this.gapBefore = 0, this.imageId});
   final StringBuffer text = StringBuffer();
   double fontSize;
+
+  /// Set for figure placeholders (an image drawn at this position).
+  final String? imageId;
 
   /// Vertical distance to the previous line in multiples of font size.
   final double gapBefore;
@@ -36,6 +41,93 @@ class PdfDocumentParser {
   final Map<String, PdfFont> _fontCache = {};
   final List<PdfDict> _trailers = [];
   bool unmappedFonts = false;
+
+  /// Figures found while extracting (see [registerImage]).
+  final List<ExtractedImage> images = [];
+  final Map<int, String> _imageIdsByObject = {};
+  final Map<String, Set<int>> _imagePages = {};
+  int currentPage = 0;
+
+  /// Converts an image XObject to JPEG/PNG bytes and returns its figure id,
+  /// or null for unsupported or tiny images.
+  String? registerImage(Object? ref, PdfStream stream) {
+    final key = ref is PdfRef ? ref.number : identityHashCode(stream);
+    final known = _imageIdsByObject[key];
+    if (known != null) {
+      _imagePages[known]!.add(currentPage);
+      return known;
+    }
+    if (images.length >= maxImagesPerSource) return null;
+    final d = stream.dict;
+    final width = (resolve(d['Width']) as num?)?.toInt() ?? 0;
+    final height = (resolve(d['Height']) as num?)?.toInt() ?? 0;
+    if (width < 64 || height < 64 || width * height < 16000) return null;
+    final filter = resolve(d['Filter']);
+    final filters = (filter is List ? filter.map(resolve).toList() : [filter])
+        .whereType<PdfName>()
+        .map((n) => n.value)
+        .toList();
+    const textFilters = {'FlateDecode', 'Fl', 'ASCII85Decode', 'A85', 'ASCIIHexDecode', 'AHx'};
+    Uint8List? bytes;
+    String ext = 'png';
+    if (filters.isNotEmpty && (filters.last == 'DCTDecode' || filters.last == 'DCT')) {
+      // JPEG, possibly wrapped in ASCII85/Flate: undo the wrappers, keep the JPEG bytes.
+      final wrappers = filters.sublist(0, filters.length - 1);
+      if (!wrappers.every(textFilters.contains)) return null;
+      bytes = wrappers.isEmpty
+          ? stream.raw
+          : PdfStream({
+              ...d,
+              'Filter': [for (final f in wrappers) PdfName(f)],
+              'DecodeParms': null,
+            }, stream.raw).decode(resolve);
+      ext = 'jpg';
+    } else if (filters.every(textFilters.contains)) {
+      final bpc = (resolve(d['BitsPerComponent']) as num?)?.toInt() ?? 8;
+      final channels = _channels(resolve(d['ColorSpace']));
+      if (bpc == 8 && (channels == 1 || channels == 3)) {
+        final pixels = stream.decode(resolve);
+        if (pixels.length >= width * height * channels) {
+          try {
+            bytes = encodePng(width, height, channels, pixels);
+          } catch (_) {}
+        }
+      }
+    }
+    if (bytes == null || bytes.length < minImageBytes || bytes.length > maxImageBytes) return null;
+    final id = 'img${images.length + 1}';
+    images.add(ExtractedImage(id: id, bytes: Uint8List.fromList(bytes), extension: ext));
+    _imageIdsByObject[key] = id;
+    _imagePages[id] = {currentPage};
+    return id;
+  }
+
+  int _channels(Object? colorSpace) {
+    final cs = resolve(colorSpace);
+    if (cs is PdfName) {
+      return switch (cs.value) {
+        'DeviceRGB' || 'CalRGB' => 3,
+        'DeviceGray' || 'CalGray' => 1,
+        _ => 0,
+      };
+    }
+    if (cs is List && cs.isNotEmpty && resolve(cs.first) is PdfName) {
+      final name = (resolve(cs.first) as PdfName).value;
+      if (name == 'ICCBased' && cs.length > 1) {
+        final icc = resolve(cs[1]);
+        if (icc is PdfStream) return (resolve(icc.dict['N']) as num?)?.toInt() ?? 0;
+      }
+      if (name == 'CalRGB') return 3;
+      if (name == 'CalGray') return 1;
+    }
+    return 0;
+  }
+
+  /// Ids of images repeated on many pages (logos, backgrounds).
+  Set<String> get repeatedImages => {
+    for (final e in _imagePages.entries)
+      if (e.value.length >= 3) e.key,
+  };
 
   Object? resolve(Object? value, [int depth = 0]) {
     var v = value;
@@ -199,13 +291,16 @@ class PdfDocumentParser {
         builder.add(s.decode(resolve));
         builder.addByte(0x0A);
       }
+      currentPage = result.length;
       final interpreter = _ContentInterpreter(this);
       try {
         interpreter.run(builder.takeBytes(), resources, 0);
       } catch (_) {
         // Keep whatever was extracted from a damaged page.
       }
-      result.add(PdfPageText(interpreter.lines.where((l) => l.text.toString().trim().isNotEmpty).toList()));
+      result.add(
+        PdfPageText(interpreter.lines.where((l) => l.imageId != null || l.text.toString().trim().isNotEmpty).toList()),
+      );
     }
     return result;
   }
@@ -359,8 +454,15 @@ class _ContentInterpreter {
           }
         case 'Do':
           if (operands.isNotEmpty && operands.last is PdfName && xobjects is Map) {
-            final xo = doc.resolve(xobjects[(operands.last as PdfName).value]);
-            if (xo is PdfStream && (doc.resolve(xo.dict['Subtype']) as PdfName?)?.value == 'Form') {
+            final rawRef = xobjects[(operands.last as PdfName).value];
+            final xo = doc.resolve(rawRef);
+            if (xo is PdfStream && (doc.resolve(xo.dict['Subtype']) as PdfName?)?.value == 'Image') {
+              final id = doc.registerImage(rawRef, xo);
+              if (id != null && !lines.any((l) => l.imageId == id)) {
+                lines.add(PdfTextLine(0, imageId: id));
+                lastY = null; // following text starts a new line
+              }
+            } else if (xo is PdfStream && (doc.resolve(xo.dict['Subtype']) as PdfName?)?.value == 'Form') {
               final saved = (ctm, tm, tlm, font, fontSize);
               final matrix = doc.resolve(xo.dict['Matrix']);
               if (matrix is List && matrix.length == 6) {

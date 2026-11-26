@@ -6,7 +6,7 @@ UnRot is a Flutter app (`app/`) organised in three layers. Lower layers never im
  ui/        Screens, reel widgets, pen canvas          (Flutter widgets, material_ui)
    │
  modules/   Feature engines                             (pure Dart + ChangeNotifier)
-   │        ingestion · ai · generation · reels · study · feed
+   │        ingestion · ai · generation · reels · visuals · study · feed
    │
  core/      Models, storage, utilities                   (pure Dart)
 ```
@@ -21,7 +21,7 @@ unchanged.
  file / pasted text
         │  modules/ingestion  (runs in a background isolate)
         ▼
- TextExtractor ──► plain text with "# headings" ──► Chunker ──► SourceChunk[]   (LibraryRepository)
+ TextExtractor ──► text with "# headings" + [[img:…]] figure markers ──► Chunker ──► SourceChunk[] + figure files
                                                                      │
                ┌─────────────────────────────────────────────────────┘
                ▼
@@ -45,10 +45,11 @@ unchanged.
 | `modules/ingestion` | `text_extractor.dart`, `extractors/*`, `chunker.dart`, `ingestion_service.dart` | File → text → sections. Pure-Dart PDF parser (xref/object streams, Flate, ToUnicode CMaps, font-size based heading detection, header/footer removal), EPUB, DOCX, HTML, Markdown, TXT. Optional `pdftotext` fallback on desktop. |
 | `modules/ai` | `ai_provider.dart`, `providers/*`, `provider_registry.dart` | Bring-your-own-key providers: Anthropic (Messages API, structured outputs), OpenAI (Chat Completions), Google Gemini, any OpenAI-compatible server (OpenRouter, Ollama, LM Studio, Groq, Mistral, …). |
 | `modules/reels` | `reel_types.dart` | Reel type registry: prompt format, JSON schema and validation per type. |
+| `modules/visuals` | `expression.dart`, `visual_spec.dart` | Safe math expression language (parser + evaluator, no code execution) and the validated description of interactive visuals: function plots, charts, SVG diagrams (with `{{expression}}` templates), equations with steps, figures; controls, animations and goals. |
 | `modules/generation` | `prompt_builder.dart`, `reel_parser.dart`, `ai_reel_generator.dart`, `offline_generator.dart`, `generation_service.dart` | Builds prompts from the section, study mode, learner progress and settings, then parses messy model output. Includes a key-less heuristic generator. |
 | `modules/study` | `study_mode.dart`, `modes/builtin_modes.dart`, `progress_tracker.dart` | Study strategies (linear course, exam prep, rote memorisation, explore) plus mastery tracking and SM-2 spaced repetition. |
 | `modules/feed` | `feed_engine.dart` | Composes the endless feed: source shares, reviews, caching, prefetching, focus mode, "explain more". |
-| `ui` | `screens/*`, `reels/*`, `pen/pen_canvas.dart` | Feed (TikTok-style), library, source detail, progress, settings; interactive reel widgets; pressure-sensitive pen canvas. |
+| `ui` | `screens/*`, `reels/*`, `visuals/*`, `pen/pen_canvas.dart` | Feed (TikTok-style), library, source detail, progress, settings; interactive reel widgets; plot/chart painters, flicker-free live SVG, LaTeX rendering (`flutter_math_fork`), sliders/dials/toggles/buttons/steppers; pressure-sensitive pen canvas. |
 
 ## Extension points
 
@@ -69,6 +70,14 @@ Each extension below is an interface plus a registry.
 2. Add a widget and register it in `ReelWidgets.builders` (`ui/reels/reel_widgets.dart`). Use `ReelContext.onAnswer`
    for objective answers and `onRate` for self-assessment, so progress and spaced repetition work automatically.
 3. Optionally add it to study modes' `defaultReelMix` and to the offline generator.
+
+### Add a visual kind or control
+
+1. Accept and validate it in `VisualNormalizer.normalize` (`modules/visuals/visual_spec.dart`), add accessors to
+   `VisualSpec` and describe it in `VisualReelSpec.promptFormat` (`modules/reels/reel_types.dart`).
+2. Render it in `_VisualReelState._visual()` (`ui/reels/visual_reel.dart`) or, for a control, in `ParamControl`
+   (`ui/visuals/controls.dart`). Parameters are a plain `Map<String, double>`; use `Expression.eval` for anything
+   the AI writes as a formula.
 
 ### Add a study mode
 
@@ -96,6 +105,7 @@ secrets.json             API keys (0600 on Linux/macOS)
 library.json             sources + per-source study settings
 chunks/<sourceId>.json   sections of a source
 reels/<sourceId>.json    generated reels (re-used for reviews)
+images/<sourceId>/       figures extracted from the source (img1.jpg, img2.png, …)
 progress.json            chunk mastery, reel SRS state, daily stats
 annotations.json         pen strokes per reel (normalised 0..1 coordinates)
 ```
@@ -110,11 +120,26 @@ annotations.json         pen strokes per reel (normalised 0..1 coordinates)
   `output_config.format` (JSON schema of the requested reel types), optional `output_config.effort`, and
   server-side refusal fallbacks (`fallbacks: "default"`) on models that support them. A `400` is retried once
   without these extras.
+* Requests that include `visual` reels are sent without a strict schema (visuals are free-form); JSON mode is
+  still requested. The prompt lists the figures of the section (`img3: Figure 2 …`) so the AI can show them.
+* The reel language is per source (`SourceStudySettings.reelLanguage`: app default, same as the source, or a
+  language). Reels remember their language so cached reels in another language are not re-used.
 * OpenAI / compatible: `POST /chat/completions` with JSON mode. Gemini: `generateContent` with
   `responseMimeType: application/json`.
 * `ReelParser` tolerates code fences, prose around the JSON, type aliases and truncated output (complete objects
-  are salvaged). Every reel is validated by its `ReelTypeSpec.normalize`.
+  are salvaged), and repairs LaTeX whose backslashes broke the JSON (`\sqrt`, `\frac` → `\\sqrt`, `\\frac`).
+  Every reel is validated by its `ReelTypeSpec.normalize`; visuals get sliders added for any free variable the AI
+  forgot to declare, SVGs are sanitised (no scripts, event handlers or external links).
 * If a request fails, the feed falls back to the offline generator (configurable).
+
+## Figures
+
+Extractors turn images into figure markers in the text (`[[img:img3|Figure 2: …]]`) and return the image bytes:
+EPUB `<img>`/SVG `<image>`, DOCX drawings (`a:blip` + relationships), PDF image XObjects (JPEG copied as is,
+8-bit RGB/grey bitmaps re-encoded as PNG; images repeated on many pages, such as logos, are dropped; a following
+"Figure n: …" line becomes the caption). The chunker keeps markers as separate blocks, `attachImages` links them to
+sections, and `LibraryRepository` stores the files. Visual reels reference figures by id and the UI resolves them
+with `AppServices.sourceImage`.
 
 ## Pen input
 

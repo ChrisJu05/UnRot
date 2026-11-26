@@ -76,14 +76,12 @@ void main() {
       expect(ReelTypes.byId('true_false')!.normalize({'statement': 'S', 'answer': 'True'})!['answer'], isTrue);
     });
 
-    test('every type has a closed JSON schema', () {
+    test('every schema-based type has a closed JSON schema', () {
       for (final t in ReelTypes.all) {
-        expect(t.jsonSchema['additionalProperties'], isFalse, reason: t.id);
-        expect(
-          (t.jsonSchema['required'] as List).toSet(),
-          (t.jsonSchema['properties'] as Map).keys.toSet(),
-          reason: t.id,
-        );
+        final schema = t.jsonSchema;
+        if (schema == null) continue; // free-form types (visual)
+        expect(schema['additionalProperties'], isFalse, reason: t.id);
+        expect((schema['required'] as List).toSet(), (schema['properties'] as Map).keys.toSet(), reason: t.id);
       }
     });
   });
@@ -113,10 +111,12 @@ void main() {
       expect(reels.map((r) => r.str('front')), ['F1', 'F2']);
     });
 
-    test('drops invalid reels and unrequested types', () {
+    test('drops invalid reels and unknown types but accepts substituted known types', () {
       const text =
-          '{"reels":[{"type":"quiz","question":"","options":[]},{"type":"mnemonic","concept":"c","hook":"h"}]}';
-      expect(parser.parse(text, job(['quiz']), generator: 't'), isEmpty);
+          '{"reels":[{"type":"quiz","question":"","options":[]},{"type":"mnemonic","concept":"c","hook":"h"},'
+          '{"type":"hologram","x":1}]}';
+      final reels = parser.parse(text, job(['quiz']), generator: 't');
+      expect(reels.map((r) => r.type), ['mnemonic']);
     });
   });
 
@@ -146,7 +146,7 @@ void main() {
       expect(user, contains('cristae'));
       expect(user, contains('Use sports analogies'));
       expect(user, contains(sampleText));
-      final schema = builder.schema(j);
+      final schema = builder.schema(j)!;
       final anyOf = ((schema['properties'] as Map)['reels'] as Map)['items'] as Map;
       expect((anyOf['anyOf'] as List).length, 2);
     });

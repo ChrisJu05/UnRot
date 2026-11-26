@@ -3,9 +3,11 @@ import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../app/app_services.dart';
+import '../../core/models/languages.dart';
 import '../../core/models/progress.dart';
 import '../../core/storage/repositories.dart';
 import '../../modules/feed/feed_engine.dart';
+import '../../modules/generation/generation_job.dart';
 import '../../modules/study/modes/builtin_modes.dart';
 import '../theme/app_theme.dart';
 import 'library_screen.dart';
@@ -165,6 +167,31 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
                   ),
                 ],
                 const SizedBox(height: 20),
+                Text('Reel language', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  key: ValueKey('lang-${source.id}'),
+                  initialValue: source.study.reelLanguage,
+                  decoration: InputDecoration(
+                    border: const OutlineInputBorder(),
+                    helperText:
+                        services.generation.usesOffline &&
+                            GenerationJob.effectiveLanguage(source, services.settings.settings.generation) != 'source'
+                        ? 'Translation needs an AI provider. The offline generator keeps the source language.'
+                        : 'Reels can be in the material\'s own language or translated, e.g. into English.',
+                    helperMaxLines: 2,
+                  ),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'default',
+                      child: Text('App default (${languageLabel(services.settings.settings.generation.language)})'),
+                    ),
+                    const DropdownMenuItem(value: 'source', child: Text('Same as the source')),
+                    for (final l in reelLanguages) DropdownMenuItem(value: l, child: Text(l)),
+                  ],
+                  onChanged: (v) => _save(() => source.study.reelLanguage = v ?? 'default'),
+                ),
+                const SizedBox(height: 20),
                 Text('Feed', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
@@ -264,7 +291,7 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
                               if (context.mounted) Navigator.of(context).popUntil((r) => r.isFirst);
                             },
                           ),
-                          onTap: () => _showChunk(context, c.title, c.text),
+                          onTap: () => _showChunk(context, c.title, c.plainText),
                         ),
                       );
                     },

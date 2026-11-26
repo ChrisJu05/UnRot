@@ -34,18 +34,32 @@ On minimal window managers, install `xdg-desktop-portal` and a backend such as `
 
 ## 2. Install Flutter
 
-Choose one:
+**Recommended: install with git.** This works on every distribution (x64 and ARM) and needs no snap:
 
-* Snap: `sudo snap install flutter --classic`
-* Manual: download the latest **stable** Linux archive from <https://docs.flutter.dev/release/archive>, extract it
-  (e.g. to `~/development/flutter`) and add `~/development/flutter/bin` to your `PATH`.
+```bash
+git clone https://github.com/flutter/flutter.git -b stable ~/development/flutter
 
-Then check the set-up:
+# make the "flutter" command available in every new terminal
+echo 'export PATH="$HOME/development/flutter/bin:$PATH"' >> ~/.bashrc   # zsh users: ~/.zshrc
+source ~/.bashrc
+```
+
+Alternatively, download the stable Linux archive from <https://docs.flutter.dev/release/archive>, extract it to
+`~/development/flutter` and add the same `PATH` line.
+
+Then check the set-up. The first run downloads the Dart SDK and takes a minute:
 
 ```bash
 flutter --version          # 3.50 or newer, Dart 3.14
 flutter doctor             # "Linux toolchain" must be ✓
 ```
+
+Update later with `flutter upgrade`.
+
+**Snap (Ubuntu only, optional):** `sudo snap install flutter --classic`. If `flutter` is then "not found":
+
+* `/snap/bin` is not on your `PATH` yet: log out and back in, or run `export PATH="$PATH:/snap/bin"`.
+* Linux Mint blocks snaps by default, and Fedora/Arch need extra snapd set-up. Use the git install above instead.
 
 ## 3. Get the code
 
@@ -121,6 +135,7 @@ it in *Settings → Pen & stylus → Test area*.
 
 | Problem | Fix |
 |---|---|
+| `flutter: command not found` | The Flutter `bin` folder is not on your `PATH`. Run `source ~/.bashrc` or open a new terminal; check with `ls ~/development/flutter/bin/flutter`. With snap, see section 2. |
 | Colours/gradients look wrong or the window is black (VMs, remote desktops, software OpenGL/llvmpipe) | Start with `UNROT_DISABLE_IMPELLER=1 ./unrot` to use the Skia renderer instead of Impeller. |
 | "Import files" does nothing | Install `xdg-desktop-portal` plus `xdg-desktop-portal-gtk` (or `-kde`) and log in again. |
 | `CMake Error ... gtk+-3.0` | `libgtk-3-dev` (or your distribution's GTK 3 development package) is missing. |

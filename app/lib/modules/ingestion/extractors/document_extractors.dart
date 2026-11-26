@@ -69,11 +69,16 @@ class EpubExtractor implements TextExtractor {
         manifest[id] = baseDir == '.' ? href : p.posix.normalize(p.posix.join(baseDir, Uri.decodeFull(href)));
       }
     }
+    final images = ImageCollector();
     final buffer = StringBuffer();
     for (final ref in opf.findAllElements('itemref', namespaceUri: '*')) {
       final path = manifest[ref.getAttribute('idref')];
       if (path == null) continue;
-      final chapter = htmlToText(readString(path));
+      final html = _replaceImages(readString(path), (src, alt) {
+        final imagePath = p.posix.normalize(p.posix.join(p.posix.dirname(path), Uri.decodeFull(src)));
+        return images.add(imagePath, archive.findFile(imagePath)?.content, alt);
+      });
+      final chapter = htmlToText(html);
       if (chapter.trim().isEmpty) continue;
       buffer
         ..writeln(chapter)
@@ -81,7 +86,57 @@ class EpubExtractor implements TextExtractor {
     }
     final text = buffer.toString().trim();
     if (text.isEmpty) throw ExtractionException('No readable text found in this EPUB.');
-    return ExtractedDocument(title: (title == null || title.isEmpty) ? titleFromFileName(fileName) : title, text: text);
+    return ExtractedDocument(
+      title: (title == null || title.isEmpty) ? titleFromFileName(fileName) : title,
+      text: text,
+      images: images.images,
+    );
+  }
+
+  /// Replaces `<img>` tags and SVG-wrapped `<image>` elements with figure markers.
+  static String _replaceImages(String html, String Function(String src, String alt) marker) {
+    String attr(String tag, String name) =>
+        RegExp(
+          '$name\\s*=\\s*("([^"]*)"|\'([^\']*)\')',
+          caseSensitive: false,
+        ).firstMatch(tag)?.let((m) => m[2] ?? m[3]) ??
+        '';
+    var out = html.replaceAllMapped(RegExp(r'<svg\b[\s\S]*?</svg\s*>', caseSensitive: false), (m) {
+      final image = RegExp(r'<image\b[^>]*>', caseSensitive: false).firstMatch(m[0]!);
+      if (image == null) return m[0]!;
+      final src = attr(image[0]!, '(?:xlink:)?href');
+      return src.isEmpty ? m[0]! : '<p>${marker(src, '')}</p>';
+    });
+    out = out.replaceAllMapped(RegExp(r'<img\b[^>]*>', caseSensitive: false), (m) {
+      final src = attr(m[0]!, 'src');
+      return src.isEmpty ? '' : '<p>${marker(src, attr(m[0]!, 'alt'))}</p>';
+    });
+    return out;
+  }
+}
+
+extension _Let<T> on T {
+  R let<R>(R Function(T) f) => f(this);
+}
+
+/// Collects document images and hands out figure markers.
+class ImageCollector {
+  final List<ExtractedImage> images = [];
+  final Map<String, String> _idsByKey = {};
+
+  /// Registers an image (by path or any stable key) and returns its marker text,
+  /// or an empty string if the image is unusable (too small, too big, unsupported).
+  String add(String key, Uint8List? bytes, String caption, {String? extension}) {
+    final existing = _idsByKey[key];
+    if (existing != null) return figureMarkerText(existing, caption);
+    if (bytes == null || bytes.length < minImageBytes || bytes.length > maxImageBytes) return '';
+    if (images.length >= maxImagesPerSource) return '';
+    final ext = extension ?? imageExtension(key);
+    if (ext == null || ext == 'svg') return '';
+    final id = 'img${images.length + 1}';
+    images.add(ExtractedImage(id: id, bytes: bytes, extension: ext, caption: caption));
+    _idsByKey[key] = id;
+    return figureMarkerText(id, caption);
   }
 }
 
@@ -117,9 +172,30 @@ class DocxExtractor implements TextExtractor {
       }
     }
 
+    // Relationship ids -> media files (images).
+    final rels = <String, String>{};
+    final relsFile = archive.findFile('word/_rels/document.xml.rels');
+    if (relsFile != null) {
+      final relsXml = XmlDocument.parse(utf8.decode(relsFile.content, allowMalformed: true));
+      for (final r in relsXml.findAllElements('Relationship', namespaceUri: '*')) {
+        final id = r.getAttribute('Id'), target = r.getAttribute('Target');
+        if (id != null && target != null) rels[id] = p.posix.normalize(p.posix.join('word', target));
+      }
+    }
+    final images = ImageCollector();
+
     final buffer = StringBuffer();
     String? firstTitle;
     for (final para in xml.findAllElements('p', namespaceUri: '*')) {
+      // Figures anchored in this paragraph.
+      for (final blip in para.findAllElements('blip', namespaceUri: '*')) {
+        final target = rels[blip.getAttribute('embed', namespaceUri: '*') ?? ''];
+        if (target == null) continue;
+        final drawing = blip.ancestors.whereType<XmlElement>().where((e) => e.localName == 'drawing').firstOrNull;
+        final docPr = drawing?.findAllElements('docPr', namespaceUri: '*').firstOrNull;
+        final caption = docPr?.getAttribute('descr') ?? docPr?.getAttribute('title') ?? '';
+        buffer.write(images.add(target, archive.findFile(target)?.content, caption));
+      }
       final text = StringBuffer();
       for (final node in para.descendants.whereType<XmlElement>()) {
         switch (node.localName) {
@@ -160,7 +236,7 @@ class DocxExtractor implements TextExtractor {
     }
     final text = buffer.toString().trim();
     if (text.isEmpty) throw ExtractionException('No readable text found in this document.');
-    return ExtractedDocument(title: title, text: text);
+    return ExtractedDocument(title: title, text: text, images: images.images);
   }
 
   static int? _headingLevel(String style) {

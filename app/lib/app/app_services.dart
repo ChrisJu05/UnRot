@@ -115,5 +115,8 @@ class AppServices {
     await library.removeSource(sourceId);
   }
 
+  /// File of a figure extracted from a source (used by visual reels).
+  File? sourceImage(String sourceId, String imageId) => library.imageFile(sourceId, imageId);
+
   Future<void> flush() => store.flush();
 }
