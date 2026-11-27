@@ -4,6 +4,7 @@ import '../../core/models/reel.dart';
 import '../../core/models/settings.dart';
 import '../../core/models/source.dart';
 import '../study/study_mode.dart';
+import '../study/subjects.dart';
 
 /// Everything a generator needs to produce reels for one section.
 class GenerationJob {
@@ -19,6 +20,7 @@ class GenerationJob {
     this.existingSummaries = const [],
     this.focus,
     this.parentReelId,
+    this.documentTitle,
   });
 
   final StudySource source;
@@ -38,6 +40,12 @@ class GenerationJob {
   /// "Explain more" focus: the reel content the learner wants to go deeper on.
   final String? focus;
   final String? parentReelId;
+
+  /// Title of the document inside a collection (null for single documents).
+  final String? documentTitle;
+
+  /// Subject profile of the source (domain guidance for the AI).
+  SubjectProfile get subject => SubjectProfiles.byId(source.study.subjectId);
 
   /// Effective reel language: `source` or a language name.
   String get language => effectiveLanguage(source, settings);

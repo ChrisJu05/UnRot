@@ -1,4 +1,5 @@
 import '../../core/util/json.dart';
+import '../visuals/expression.dart';
 import '../visuals/visual_spec.dart';
 
 /// Describes one kind of reel: how the AI should produce it and how raw
@@ -342,6 +343,271 @@ class VisualReelSpec extends ReelTypeSpec {
   Map<String, dynamic>? normalize(Map<String, dynamic> raw) => VisualNormalizer.normalize(raw);
 }
 
+// ---------------------------------------------------------------------------
+// Math & science reel types
+// ---------------------------------------------------------------------------
+
+Map<String, Object?> _closed(Map<String, Object?> props) => {
+  'type': 'object',
+  'properties': props,
+  'required': props.keys.toList(),
+  'additionalProperties': false,
+};
+
+/// Parses numbers written by models or learners: "1.5e16", "1,5·10^16", "6/2".
+double? parseNumber(Object? v) {
+  if (v is num) return v.toDouble();
+  final s = jString(v)
+      .trim()
+      .replaceAll(RegExp(r'(?<=\d),(?=\d)'), '.')
+      .replaceAll(RegExp(r'\s*[·×x*]\s*10\s*\^\s*'), 'e')
+      .replaceAll(RegExp(r'\s*[·×]\s*10(?=[⁻⁰¹²³⁴⁵⁶⁷⁸⁹])'), 'e')
+      .replaceAllMapped(
+        RegExp('[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]'),
+        (m) => const {
+          '⁻': '-',
+          '⁰': '0',
+          '¹': '1',
+          '²': '2',
+          '³': '3',
+          '⁴': '4',
+          '⁵': '5',
+          '⁶': '6',
+          '⁷': '7',
+          '⁸': '8',
+          '⁹': '9',
+        }[m[0]]!,
+      )
+      .replaceAll(RegExp(r'e\(([-+]?\d+)\)'), r'e$1');
+  if (s.isEmpty) return null;
+  final direct = double.tryParse(s);
+  if (direct != null) return direct;
+  final value = Expression.eval(s, const {});
+  if (value.isFinite) return value;
+  // A number followed by a unit: "4.2 V", "3e-5 m", "12 %".
+  final lead = RegExp(r'^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*[A-Za-zΩµμ%°]').firstMatch(s);
+  return lead == null ? null : double.tryParse(lead[1]!);
+}
+
+/// Step-by-step procedure ("Rechenrezept") with a worked example.
+class MathRecipeSpec extends ReelTypeSpec {
+  const MathRecipeSpec();
+  @override
+  String get id => 'math_recipe';
+  @override
+  String get label => 'Recipe (Rechenrezept)';
+  @override
+  String get description => 'A step-by-step method for a standard calculation, with a worked example.';
+  @override
+  bool get isRecall => false;
+  @override
+  String get promptFormat =>
+      '{"type":"math_recipe","title":"…","goal":"what the procedure computes","when_to_use":"…",'
+      '"steps":[{"action":"imperative instruction","latex":"key formula or empty"}],'
+      '"example":{"problem":"…","steps":["…"],"result":"…"},"pitfalls":["…"]}';
+  @override
+  String get promptGuidance =>
+      '3-7 short imperative steps, each with its key formula in LaTeX (may be empty); one fully worked example with '
+      'concrete numbers; 1-3 typical mistakes.';
+  @override
+  Map<String, Object?>? get jsonSchema => _objectSchema(id, {
+    'title': _str,
+    'goal': _str,
+    'when_to_use': _str,
+    'steps': {
+      'type': 'array',
+      'items': _closed({'action': _str, 'latex': _str}),
+    },
+    'example': _closed({'problem': _str, 'steps': _strList, 'result': _str}),
+    'pitfalls': _strList,
+  });
+  @override
+  Map<String, dynamic>? normalize(Map<String, dynamic> raw) {
+    final steps = <Map<String, dynamic>>[];
+    for (final s in (raw['steps'] is List ? raw['steps'] as List : const [])) {
+      final m = s is String ? {'action': s} : jMap(s);
+      final action = _clean(m['action'] ?? m['step'] ?? m['text']);
+      if (action.isEmpty) continue;
+      steps.add({'action': action, 'latex': _clean(m['latex'] ?? m['formula'])});
+    }
+    if (steps.length < 2) return null;
+    final ex = jMap(raw['example']);
+    return {
+      'title': _clean(raw['title']),
+      'goal': _clean(raw['goal']),
+      'when_to_use': _clean(raw['when_to_use'] ?? raw['when']),
+      'steps': steps.take(10).toList(),
+      'example': {
+        'problem': _clean(ex['problem']),
+        'steps': _cleanList(ex['steps']).take(10).toList(),
+        'result': _clean(ex['result']),
+      },
+      'pitfalls': _cleanList(raw['pitfalls']).take(4).toList(),
+    };
+  }
+}
+
+/// A theorem / law ("Satz", "Gesetz") with assumptions, statement, intuition and proof idea.
+class TheoremSpec extends ReelTypeSpec {
+  const TheoremSpec();
+  @override
+  String get id => 'theorem';
+  @override
+  String get label => 'Theorem (Satz)';
+  @override
+  String get description => 'A theorem or law with its exact assumptions, statement, intuition and proof idea.';
+  @override
+  bool get isRecall => true;
+  @override
+  String get promptFormat =>
+      '{"type":"theorem","kind":"Satz|Theorem|Gesetz|Lemma|Definition","name":"…","assumptions":["…"],'
+      '"statement":"…","formula":"LaTeX or empty","intuition":"…","proof_idea":"…","example":"…"}';
+  @override
+  String get promptGuidance =>
+      'State it exactly as in the source with ALL assumptions (Voraussetzungen); key formula in LaTeX; intuition in '
+      '1-2 sentences; proof idea in 1-3 sentences; one concrete example.';
+  @override
+  Map<String, Object?>? get jsonSchema => _objectSchema(id, {
+    'kind': _str,
+    'name': _str,
+    'assumptions': _strList,
+    'statement': _str,
+    'formula': _str,
+    'intuition': _str,
+    'proof_idea': _str,
+    'example': _str,
+  });
+  @override
+  Map<String, dynamic>? normalize(Map<String, dynamic> raw) {
+    final name = _clean(raw['name'] ?? raw['title']);
+    final statement = _clean(raw['statement'] ?? raw['aussage']);
+    if (name.isEmpty || (statement.isEmpty && _clean(raw['formula']).isEmpty)) return null;
+    return {
+      'kind': _clean(raw['kind']).isEmpty ? 'Theorem' : _clean(raw['kind']),
+      'name': name,
+      'assumptions': _cleanList(raw['assumptions'] ?? raw['conditions']).take(6).toList(),
+      'statement': statement,
+      'formula': _clean(raw['formula'] ?? raw['latex']),
+      'intuition': _clean(raw['intuition']),
+      'proof_idea': _clean(raw['proof_idea'] ?? raw['proof']),
+      'example': _clean(raw['example']),
+    };
+  }
+}
+
+/// A formula with a legend of its symbols and units.
+class FormulaCardSpec extends ReelTypeSpec {
+  const FormulaCardSpec();
+  @override
+  String get id => 'formula';
+  @override
+  String get label => 'Formula card';
+  @override
+  String get description => 'A key formula with the meaning and unit of every symbol.';
+  @override
+  bool get isRecall => true;
+  @override
+  String get promptFormat =>
+      '{"type":"formula","name":"…","latex":"…","symbols":[{"symbol":"LaTeX","meaning":"…","unit":"SI unit or empty"}],'
+      '"conditions":"when it holds","intuition":"…"}';
+  @override
+  String get promptGuidance =>
+      'Explain every symbol of the formula; units as in the source (e.g. cm⁻³ in device physics).';
+  @override
+  Map<String, Object?>? get jsonSchema => _objectSchema(id, {
+    'name': _str,
+    'latex': _str,
+    'symbols': {
+      'type': 'array',
+      'items': _closed({'symbol': _str, 'meaning': _str, 'unit': _str}),
+    },
+    'conditions': _str,
+    'intuition': _str,
+  });
+  @override
+  Map<String, dynamic>? normalize(Map<String, dynamic> raw) {
+    final latex = _clean(raw['latex'] ?? raw['formula']);
+    if (latex.isEmpty) return null;
+    final symbols = <Map<String, dynamic>>[];
+    for (final s in (raw['symbols'] is List ? raw['symbols'] as List : const [])) {
+      final m = jMap(s);
+      final symbol = _clean(m['symbol']);
+      final meaning = _clean(m['meaning'] ?? m['description']);
+      if (symbol.isEmpty || meaning.isEmpty) continue;
+      symbols.add({'symbol': symbol, 'meaning': meaning, 'unit': _clean(m['unit'])});
+    }
+    return {
+      'name': _clean(raw['name'] ?? raw['title']),
+      'latex': latex,
+      'symbols': symbols.take(10).toList(),
+      'conditions': _clean(raw['conditions']),
+      'intuition': _clean(raw['intuition']),
+    };
+  }
+}
+
+/// A numeric calculation exercise; the learner's answer is checked within a tolerance.
+class CalcExerciseSpec extends ReelTypeSpec {
+  const CalcExerciseSpec();
+  @override
+  String get id => 'calc_exercise';
+  @override
+  String get label => 'Calculation';
+  @override
+  String get description => 'A numeric exercise with given values; your answer is checked.';
+  @override
+  bool get isRecall => true;
+  @override
+  String get promptFormat =>
+      '{"type":"calc_exercise","problem":"…","given":[{"symbol":"LaTeX","value":"1.5e16","unit":"…"}],'
+      '"asked":"what to compute, with symbol","answer":12.3,"unit":"…","tolerance":0.02,"hint":"…",'
+      '"solution":["step with formula …","…"]}';
+  @override
+  String get promptGuidance =>
+      'Realistic values from the subject; "answer" is a plain number in "unit"; "tolerance" is relative (0.01-0.05); '
+      'solution steps show formulas in LaTeX and the numbers inserted. Double-check the arithmetic.';
+  @override
+  Map<String, Object?>? get jsonSchema => _objectSchema(id, {
+    'problem': _str,
+    'given': {
+      'type': 'array',
+      'items': _closed({'symbol': _str, 'value': _str, 'unit': _str}),
+    },
+    'asked': _str,
+    'answer': {'type': 'number'},
+    'unit': _str,
+    'tolerance': {'type': 'number'},
+    'hint': _str,
+    'solution': _strList,
+  });
+  @override
+  Map<String, dynamic>? normalize(Map<String, dynamic> raw) {
+    final problem = _clean(raw['problem'] ?? raw['question']);
+    final answer = parseNumber(raw['answer']);
+    if (problem.isEmpty || answer == null || !answer.isFinite) return null;
+    final given = <Map<String, dynamic>>[];
+    for (final g in (raw['given'] is List ? raw['given'] as List : const [])) {
+      final m = jMap(g);
+      final symbol = _clean(m['symbol'] ?? m['name']);
+      if (symbol.isEmpty) continue;
+      given.add({'symbol': symbol, 'value': _clean(m['value']), 'unit': _clean(m['unit'])});
+    }
+    return {
+      'problem': problem,
+      'given': given.take(10).toList(),
+      'asked': _clean(raw['asked'] ?? raw['find']),
+      'answer': answer,
+      'unit': _clean(raw['unit']),
+      'tolerance': (parseNumber(raw['tolerance']) ?? 0.02).abs().clamp(0.001, 0.25),
+      'hint': _clean(raw['hint']),
+      'solution': _cleanList(raw['solution'] ?? raw['steps']).take(10).toList(),
+    };
+  }
+}
+
+/// Reel types that are shown on the neutral "math" background.
+const mathReelTypes = {'math_recipe', 'theorem', 'formula', 'calc_exercise'};
+
 /// Registry of all reel types.
 class ReelTypes {
   static const List<ReelTypeSpec> all = [
@@ -354,6 +620,10 @@ class ReelTypes {
     WriteRecallSpec(),
     MnemonicSpec(),
     VisualReelSpec(),
+    MathRecipeSpec(),
+    TheoremSpec(),
+    FormulaCardSpec(),
+    CalcExerciseSpec(),
   ];
 
   static final Map<String, ReelTypeSpec> _byId = {for (final t in all) t.id: t};

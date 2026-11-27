@@ -13,6 +13,8 @@ sudo apt install -y git curl unzip xz-utils clang cmake ninja-build pkg-config \
     libgtk-3-dev liblzma-dev libstdc++-12-dev
 # optional, improves import of unusual PDFs:
 sudo apt install -y poppler-utils
+# optional, voice for "read aloud" (most desktops already have speech-dispatcher):
+sudo apt install -y espeak-ng
 ```
 
 **Fedora**
@@ -20,6 +22,7 @@ sudo apt install -y poppler-utils
 ```bash
 sudo dnf install -y git clang cmake ninja-build pkgconf-pkg-config gtk3-devel xz-devel
 sudo dnf install -y poppler-utils   # optional
+sudo dnf install -y espeak-ng       # optional, read aloud
 ```
 
 **Arch / Manjaro**
@@ -27,7 +30,13 @@ sudo dnf install -y poppler-utils   # optional
 ```bash
 sudo pacman -S --needed git clang cmake ninja pkgconf gtk3 xz
 sudo pacman -S --needed poppler      # optional
+sudo pacman -S --needed espeak-ng    # optional, read aloud
 ```
+
+**Read aloud** on Linux calls `espeak-ng` (preferred, also `espeak`) or speech-dispatcher's `spd-say`. Nothing is
+needed at build time; *Settings → Audio* shows which voice was found. eSpeak has voices for German, English and
+most other languages. If speech-dispatcher is configured with a nicer voice (e.g. Piper or RHVoice) and espeak-ng
+is not installed, that voice is used.
 
 At runtime the file picker uses the **XDG desktop portal** (D-Bus). GNOME, KDE and most desktops ship it.
 On minimal window managers, install `xdg-desktop-portal` and a backend such as `xdg-desktop-portal-gtk`.
@@ -140,4 +149,6 @@ it in *Settings → Pen & stylus → Test area*.
 | "Import files" does nothing | Install `xdg-desktop-portal` plus `xdg-desktop-portal-gtk` (or `-kde`) and log in again. |
 | `CMake Error ... gtk+-3.0` | `libgtk-3-dev` (or your distribution's GTK 3 development package) is missing. |
 | A PDF imports with missing text | Install `poppler-utils`; UnRot then falls back to `pdftotext` automatically (*Settings → Data*). Scanned PDFs need OCR, which is not supported yet. |
+| *Settings → Audio* says "No voice found" | Install `espeak-ng` (see step 1) and restart UnRot. Check with `espeak-ng "Hallo"` in a terminal. |
+| Reels are read but nothing is heard | Check the system volume and output device (PulseAudio/PipeWire); `espeak-ng "test"` must be audible. |
 | Requests to the AI provider time out behind a proxy | UnRot respects `HTTPS_PROXY`/`NO_PROXY`. Start it from a shell where these are set. |

@@ -1,4 +1,7 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:provider/provider.dart';
+
+import '../../app/app_services.dart';
 
 import 'feed_screen.dart';
 import 'library_screen.dart';
@@ -23,7 +26,11 @@ class _HomeShellState extends State<HomeShell> {
     (Icons.settings_outlined, Icons.settings, 'Settings'),
   ];
 
-  void _select(int i) => setState(() => _index = i);
+  void _select(int i) {
+    // Leaving the feed stops reading aloud.
+    if (i != 0) context.read<AppServices>().speech.stop();
+    setState(() => _index = i);
+  }
 
   @override
   Widget build(BuildContext context) {

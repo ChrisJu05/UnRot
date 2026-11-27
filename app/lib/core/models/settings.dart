@@ -59,6 +59,7 @@ class GenerationSettings {
     this.fallbackToOffline = true,
     this.visualLevel = 'some',
     this.allowWebImages = false,
+    this.maxAiRequestsPerDay = 40,
   });
 
   /// `adaptive`, `easy`, `medium`, `hard`.
@@ -85,6 +86,9 @@ class GenerationSettings {
   /// Let visuals load images from the internet (privacy: contacts the image host).
   bool allowWebImages;
 
+  /// Daily cap on AI requests to keep the bill predictable (0 = unlimited).
+  int maxAiRequestsPerDay;
+
   /// Multiplier for the weight of `visual` reels in the mix.
   double get visualWeightFactor => switch (visualLevel) {
     'off' => 0,
@@ -103,6 +107,7 @@ class GenerationSettings {
     'fallbackToOffline': fallbackToOffline,
     'visualLevel': visualLevel,
     'allowWebImages': allowWebImages,
+    'maxAiRequestsPerDay': maxAiRequestsPerDay,
   };
 
   factory GenerationSettings.fromJson(Map<String, dynamic> json) => GenerationSettings(
@@ -116,6 +121,7 @@ class GenerationSettings {
     fallbackToOffline: jBool(json['fallbackToOffline'], true),
     visualLevel: jString(json['visualLevel'], 'some'),
     allowWebImages: jBool(json['allowWebImages']),
+    maxAiRequestsPerDay: jInt(json['maxAiRequestsPerDay'], 40).clamp(0, 10000),
   );
 }
 
@@ -127,6 +133,10 @@ class FeedSettings {
     this.useModeReelMix = true,
     Map<String, double>? reelTypeWeights,
     this.focusSourceId,
+    this.neutralMathBackground = true,
+    this.reuseReels = true,
+    this.reuseAfterHours = 24,
+    this.retireAfterViews = 5,
   }) : reelTypeWeights = reelTypeWeights ?? {};
 
   /// Start generating when fewer than this many unseen reels are queued.
@@ -144,12 +154,29 @@ class FeedSettings {
   /// When set, the feed only shows this source.
   String? focusSourceId;
 
+  /// Calm "graph paper" background for formula-heavy reels.
+  bool neutralMathBackground;
+
+  /// Re-show already seen reels before generating new ones (saves AI requests).
+  bool reuseReels;
+
+  /// Minimum time before a seen reel is shown again.
+  int reuseAfterHours;
+
+  /// Delete a reel after it was seen this many times (0 = keep forever).
+  /// Saved reels and reels answered wrong last time are kept.
+  int retireAfterViews;
+
   Map<String, dynamic> toJson() => {
     'prefetchThreshold': prefetchThreshold,
     'reviewShare': reviewShare,
     'useModeReelMix': useModeReelMix,
     'reelTypeWeights': reelTypeWeights,
     'focusSourceId': focusSourceId,
+    'neutralMathBackground': neutralMathBackground,
+    'reuseReels': reuseReels,
+    'reuseAfterHours': reuseAfterHours,
+    'retireAfterViews': retireAfterViews,
   };
 
   factory FeedSettings.fromJson(Map<String, dynamic> json) => FeedSettings(
@@ -158,6 +185,10 @@ class FeedSettings {
     useModeReelMix: jBool(json['useModeReelMix'], true),
     reelTypeWeights: jDoubleMap(json['reelTypeWeights']),
     focusSourceId: jStringOrNull(json['focusSourceId']),
+    neutralMathBackground: jBool(json['neutralMathBackground'], true),
+    reuseReels: jBool(json['reuseReels'], true),
+    reuseAfterHours: jInt(json['reuseAfterHours'], 24).clamp(1, 24 * 60),
+    retireAfterViews: jInt(json['retireAfterViews'], 5).clamp(0, 100),
   );
 }
 
@@ -197,22 +228,56 @@ class PenSettings {
   );
 }
 
+/// Reading reels aloud (text-to-speech).
+class AudioSettings {
+  AudioSettings({this.autoRead = false, this.autoAdvance = false, this.rate = 1.0, this.readAnswers = true});
+
+  /// Read every reel aloud as soon as it is shown ("lean-back" mode).
+  bool autoRead;
+
+  /// After a reel was read in auto-read mode, scroll to the next one.
+  bool autoAdvance;
+
+  /// Speaking speed, 0.5 … 2.0 (1.0 = normal).
+  double rate;
+
+  /// Also read the answer/explanation after a question was answered.
+  bool readAnswers;
+
+  Map<String, dynamic> toJson() => {
+    'autoRead': autoRead,
+    'autoAdvance': autoAdvance,
+    'rate': rate,
+    'readAnswers': readAnswers,
+  };
+
+  factory AudioSettings.fromJson(Map<String, dynamic> json) => AudioSettings(
+    autoRead: jBool(json['autoRead'], false),
+    autoAdvance: jBool(json['autoAdvance'], false),
+    rate: jDouble(json['rate'], 1.0).clamp(0.5, 2.0),
+    readAnswers: jBool(json['readAnswers'], true),
+  );
+}
+
 class AppSettings {
   AppSettings({
     AiSettings? ai,
     GenerationSettings? generation,
     FeedSettings? feed,
     PenSettings? pen,
+    AudioSettings? audio,
     this.usePdftotext = true,
   }) : ai = ai ?? AiSettings(),
        generation = generation ?? GenerationSettings(),
        feed = feed ?? FeedSettings(),
-       pen = pen ?? PenSettings();
+       pen = pen ?? PenSettings(),
+       audio = audio ?? AudioSettings();
 
   final AiSettings ai;
   final GenerationSettings generation;
   final FeedSettings feed;
   final PenSettings pen;
+  final AudioSettings audio;
 
   /// Desktop: prefer the system `pdftotext` (poppler) for PDF import when installed.
   bool usePdftotext;
@@ -223,6 +288,7 @@ class AppSettings {
     'generation': generation.toJson(),
     'feed': feed.toJson(),
     'pen': pen.toJson(),
+    'audio': audio.toJson(),
     'usePdftotext': usePdftotext,
   };
 
@@ -231,6 +297,7 @@ class AppSettings {
     generation: GenerationSettings.fromJson(jMap(json['generation'])),
     feed: FeedSettings.fromJson(jMap(json['feed'])),
     pen: PenSettings.fromJson(jMap(json['pen'])),
+    audio: AudioSettings.fromJson(jMap(json['audio'])),
     usePdftotext: jBool(json['usePdftotext'], true),
   );
 }

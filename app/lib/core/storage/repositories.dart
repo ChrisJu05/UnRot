@@ -47,20 +47,99 @@ class LibraryRepository extends ChangeNotifier {
     for (final s in _sources) {
       final chunkJson = await _store.read('chunks/${s.id}.json');
       _chunks[s.id] = (chunkJson is List ? chunkJson : const []).map((e) => SourceChunk.fromJson(jMap(e))).toList();
-      s.chunkCount = _chunks[s.id]!.length;
+      if (s.documents.isEmpty && _chunks[s.id]!.isNotEmpty) {
+        // Single-document source from before collections existed.
+        s.documents.add(
+          SourceDocument(id: 'd0', title: s.title, format: s.format, fileName: s.originalFileName, addedAt: s.addedAt),
+        );
+      }
+      _updateCounts(s);
     }
     notifyListeners();
   }
 
+  void _updateCounts(StudySource s) {
+    final chunks = this.chunks(s.id);
+    s.chunkCount = chunks.length;
+    s.charCount = chunks.fold(0, (sum, c) => sum + c.text.length);
+    for (final d in s.documents) {
+      final own = chunks.where((c) => c.documentId == d.id);
+      d.chunkCount = own.length;
+      d.charCount = own.fold(0, (sum, c) => sum + c.text.length);
+    }
+  }
+
   Future<void> addSource(StudySource source, List<SourceChunk> chunks) async {
-    source.chunkCount = chunks.length;
-    source.charCount = chunks.fold(0, (sum, c) => sum + c.text.length);
     _sources.insert(0, source);
     _chunks[source.id] = chunks;
-    await _store.write('chunks/${source.id}.json', chunks.map((c) => c.toJson()).toList());
+    _updateCounts(source);
+    await _saveChunks(source.id);
     await _saveIndex();
     notifyListeners();
   }
+
+  /// The document a section belongs to.
+  SourceDocument? documentOf(SourceChunk chunk) => source(chunk.sourceId)?.document(chunk.documentId);
+
+  /// Appends a document (with its sections) to a source.
+  Future<void> addDocument(String sourceId, SourceDocument document, List<SourceChunk> chunks) async {
+    final s = source(sourceId);
+    if (s == null) return;
+    s.documents.add(document);
+    _chunks[sourceId] = [...this.chunks(sourceId), ...chunks];
+    _reindex(s);
+    await _saveChunks(sourceId);
+    await _saveIndex();
+    notifyListeners();
+  }
+
+  /// Removes a document and returns its sections (for cleaning up reels/progress/figures).
+  Future<List<SourceChunk>> removeDocument(String sourceId, String documentId) async {
+    final s = source(sourceId);
+    if (s == null) return const [];
+    final removed = chunks(sourceId).where((c) => c.documentId == documentId).toList();
+    s.documents.removeWhere((d) => d.id == documentId);
+    _chunks[sourceId] = chunks(sourceId).where((c) => c.documentId != documentId).toList();
+    for (final img in removed.expand((c) => c.images)) {
+      final file = _store.file('images/$sourceId/${img.file}');
+      if (await file.exists()) await file.delete();
+    }
+    _reindex(s);
+    await _saveChunks(sourceId);
+    await _saveIndex();
+    notifyListeners();
+    return removed;
+  }
+
+  /// Moves a document up (-1) or down (+1) in the reading order.
+  Future<void> moveDocument(String sourceId, String documentId, int delta) async {
+    final s = source(sourceId);
+    if (s == null) return;
+    final i = s.documents.indexWhere((d) => d.id == documentId);
+    final j = i + delta;
+    if (i < 0 || j < 0 || j >= s.documents.length) return;
+    final d = s.documents.removeAt(i);
+    s.documents.insert(j, d);
+    _reindex(s);
+    await _saveChunks(sourceId);
+    await _saveIndex();
+    notifyListeners();
+  }
+
+  /// Orders sections by document order and renumbers them (chunk ids stay stable).
+  void _reindex(StudySource s) {
+    final order = {for (var i = 0; i < s.documents.length; i++) s.documents[i].id: i};
+    final sorted = List.of(chunks(s.id))
+      ..sort((a, b) {
+        final c = (order[a.documentId] ?? 999).compareTo(order[b.documentId] ?? 999);
+        return c != 0 ? c : a.index.compareTo(b.index);
+      });
+    _chunks[s.id] = [for (var i = 0; i < sorted.length; i++) sorted[i].copyWith(index: i)];
+    _updateCounts(s);
+  }
+
+  Future<void> _saveChunks(String sourceId) =>
+      _store.write('chunks/$sourceId.json', chunks(sourceId).map((c) => c.toJson()).toList());
 
   Future<void> updateSource(StudySource source) async {
     await _saveIndex();
@@ -139,6 +218,18 @@ class ReelRepository extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Removes reels by id (e.g. retired or belonging to a removed document).
+  void removeIds(Set<String> ids) {
+    final touched = <String>{};
+    _reels.removeWhere((id, r) {
+      final remove = ids.contains(id);
+      if (remove) touched.add(r.sourceId);
+      return remove;
+    });
+    touched.forEach(_scheduleSave);
+    if (touched.isNotEmpty) notifyListeners();
+  }
+
   Future<void> clear(Iterable<String> sourceIds) async {
     _reels.clear();
     for (final id in sourceIds) {
@@ -208,6 +299,20 @@ class ProgressRepository extends ChangeNotifier {
 
   void removeSource(String sourceId, Iterable<String> reelIds) {
     _chunks.removeWhere((_, c) => c.sourceId == sourceId);
+    for (final id in reelIds) {
+      _reels.remove(id);
+    }
+    changed();
+  }
+
+  void removeReelStates(Set<String> reelIds) {
+    for (final id in reelIds) {
+      _reels.remove(id);
+    }
+  }
+
+  void removeChunks(Set<String> chunkIds, Iterable<String> reelIds) {
+    _chunks.removeWhere((id, _) => chunkIds.contains(id));
     for (final id in reelIds) {
       _reels.remove(id);
     }

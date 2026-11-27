@@ -13,11 +13,15 @@ import '../generation/generation_service.dart';
 import '../reels/reel_types.dart';
 import '../study/progress_tracker.dart';
 import '../study/study_mode.dart';
+import '../study/subjects.dart';
 
 class FeedItem {
-  FeedItem(this.reel, {this.isReview = false});
+  FeedItem(this.reel, {this.isReview = false, this.isRerun = false});
   final Reel reel;
   final bool isReview;
+
+  /// Shown again from the reel cache instead of generating new content.
+  final bool isRerun;
 }
 
 /// Composes the endless reel feed.
@@ -147,7 +151,56 @@ class FeedEngine extends ChangeNotifier {
     await refresh();
   }
 
+  /// Called with the ids of reels removed after too many views (to clean up annotations).
+  void Function(Set<String> reelIds)? onReelsRetired;
+
+  /// Informational message for the UI (e.g. daily AI limit reached).
+  String? notice;
+
+  bool _retireCandidate(String reelId, int limit) {
+    final rs = progress.peekReel(reelId);
+    return rs != null && rs.views >= limit && !rs.bookmarked && rs.lastCorrect != false;
+  }
+
+  /// Deletes reels that were seen often enough (keeps saved ones and ones answered wrong).
+  /// Reels currently on screen or queued are left alone.
+  int retireExpired() {
+    final limit = settings.settings.feed.retireAfterViews;
+    if (limit <= 0) return 0;
+    final keep = items.skip(max(0, currentIndex - 1)).map((i) => i.reel.id).toSet();
+    final ids = reels.all.map((r) => r.id).where((id) => !keep.contains(id) && _retireCandidate(id, limit)).toSet();
+    if (ids.isEmpty) return 0;
+    reels.removeIds(ids);
+    progress.removeReelStates(ids);
+    progress.stats.reelsRetired += ids.length;
+    progress.changed();
+    onReelsRetired?.call(ids);
+    return ids.length;
+  }
+
+  /// Seen reels that may be shown again (older than the reuse interval).
+  List<Reel> _reusable(Iterable<Reel> candidates, Set<String> exclude, String language) {
+    final feed = settings.settings.feed;
+    final cutoff = now.subtract(Duration(hours: feed.reuseAfterHours));
+    final limit = feed.retireAfterViews;
+    final list =
+        candidates.where((r) {
+          if (exclude.contains(r.id)) return false;
+          if (r.language != null && r.language != language) return false;
+          final rs = progress.peekReel(r.id);
+          if (rs == null || rs.views == 0 || rs.isDue(now)) return false; // unseen or due: handled elsewhere
+          if (limit > 0 && rs.views >= limit) return false;
+          return rs.lastViewed == null || !rs.lastViewed!.isAfter(cutoff);
+        }).toList()..sort(
+          (a, b) => (progress.peekReel(a.id)!.lastViewed ?? DateTime(2000)).compareTo(
+            progress.peekReel(b.id)!.lastViewed ?? DateTime(2000),
+          ),
+        );
+    return list;
+  }
+
   Future<void> _fill() async {
+    retireExpired();
     final sources = activeSources;
     if (sources.isEmpty) {
       emptyReason = library.sources.isEmpty ? 'no_sources' : 'no_active_sources';
@@ -187,6 +240,11 @@ class FeedEngine extends ChangeNotifier {
           .where((r) => r.language == null || r.language == language)
           .toList();
       fresh.addAll(cached.take(batch).map(FeedItem.new));
+      // Re-show reels seen a while ago before paying for new ones.
+      if (feed.reuseReels && fresh.length < batch) {
+        final reusable = _reusable(reels.forChunk(chunk.id), inFeed, language);
+        fresh.addAll(reusable.take(batch - fresh.length).map((r) => FeedItem(r, isRerun: true)));
+      }
       final missing = batch - fresh.length;
       if (missing > 0 && (fresh.length < (batch / 2).ceil())) {
         final generated = await _generate(source, chunk, mode, missing);
@@ -203,7 +261,7 @@ class FeedEngine extends ChangeNotifier {
             progress.peekReel(b.id)?.lastViewed ?? DateTime(2000),
           ),
         );
-      reviews.addAll(old.take(batch).map((r) => FeedItem(r, isReview: true)));
+      reviews.addAll(old.take(batch).map((r) => FeedItem(r, isRerun: true)));
     }
     if (fresh.isEmpty && reviews.isEmpty) {
       if (lastError == null) emptyReason = 'nothing_to_show';
@@ -262,6 +320,13 @@ class FeedEngine extends ChangeNotifier {
         ? mode.defaultReelMix
         : feed.reelTypeWeights;
     final mix = Map.of(mode.mixFor(progress.peekChunk(chunkId), base));
+    // Subject profiles add math/science reel types (not for a fully custom mix).
+    if (feed.useModeReelMix) {
+      final source = library.source(chunkId.split(':').first);
+      final subject = SubjectProfiles.byId(source?.study.subjectId ?? 'general');
+      final scale = mode.id == 'rote' ? 0.6 : 1.0;
+      subject.extraMix.forEach((type, w) => mix[type] = (mix[type] ?? 0) + w * scale);
+    }
     if (mix.containsKey('visual')) mix['visual'] = mix['visual']! * settings.settings.generation.visualWeightFactor;
     mix.removeWhere((k, v) => v <= 0 || ReelTypes.byId(k) == null);
     if (mix.isEmpty) mix['explainer'] = 1;
@@ -324,12 +389,25 @@ class FeedEngine extends ChangeNotifier {
       existingSummaries: reels.forChunk(chunk.id).map((r) => r.summary).toList(),
       focus: focus,
       parentReelId: parentReelId,
+      documentTitle: source.isCollection ? library.documentOf(chunk)?.title : null,
     );
     try {
       List<Reel> result;
       try {
-        final generator = await generation.current();
-        result = await generator.generate(job);
+        final gen = settings.settings.generation;
+        final limit = gen.maxAiRequestsPerDay;
+        if (!generation.usesOffline && limit > 0 && progress.stats.aiRequestsOn(now) >= limit) {
+          // Daily AI budget used up: rely on saved reels (and the offline generator if allowed).
+          notice = 'Daily AI limit of $limit requests reached — showing saved reels. Change it in Settings.';
+          result = gen.fallbackToOffline ? await generation.offline.generate(job) : const [];
+        } else {
+          final generator = await generation.current();
+          if (!generation.usesOffline) {
+            progress.stats.countAiRequest(now);
+            progress.changed();
+          }
+          result = await generator.generate(job);
+        }
       } catch (e) {
         lastError = e.toString();
         if (!settings.settings.generation.fallbackToOffline) rethrow;
@@ -366,6 +444,15 @@ class FeedEngine extends ChangeNotifier {
   }
 
   /// Removes everything belonging to a deleted source from the queue.
+  /// Removes reels of deleted sections (e.g. a document removed from a collection).
+  void removeChunks(Set<String> chunkIds) {
+    final before = items.take(currentIndex + 1).where((i) => chunkIds.contains(i.reel.chunkId)).length;
+    items.removeWhere((i) => chunkIds.contains(i.reel.chunkId));
+    currentIndex = (currentIndex - before).clamp(0, max(0, items.length - 1));
+    if (focusChunkId != null && chunkIds.contains(focusChunkId)) focusChunkId = null;
+    notifyListeners();
+  }
+
   void removeSource(String sourceId) {
     final before = items.take(currentIndex + 1).where((i) => i.reel.sourceId == sourceId).length;
     items.removeWhere((i) => i.reel.sourceId == sourceId);

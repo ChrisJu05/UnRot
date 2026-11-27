@@ -11,6 +11,7 @@ import 'package:unrot/core/models/settings.dart';
 import 'package:unrot/core/storage/json_store.dart';
 import 'package:unrot/core/storage/repositories.dart';
 import 'package:unrot/core/storage/secret_store.dart';
+import 'package:unrot/modules/speech/speech_engine.dart';
 import 'package:unrot/modules/study/progress_tracker.dart';
 import 'package:unrot/ui/pen/pen_canvas.dart';
 import 'package:unrot/ui/reels/reel_common.dart';
@@ -229,7 +230,7 @@ void main() {
       addTearDown(tester.view.reset);
       final services = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('unrot_app');
-        return AppServices.create(directory: dir, secrets: MemorySecretStore());
+        return AppServices.create(directory: dir, secrets: MemorySecretStore(), speechEngine: SilentSpeechEngine());
       }))!;
       await tester.pumpWidget(UnRotApp(services: services));
       await tester.runAsync(() => services.feed.ensureBuffer(force: true));
@@ -277,7 +278,7 @@ void main() {
       addTearDown(tester.view.reset);
       final services = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('unrot_phone');
-        return AppServices.create(directory: dir, secrets: MemorySecretStore());
+        return AppServices.create(directory: dir, secrets: MemorySecretStore(), speechEngine: SilentSpeechEngine());
       }))!;
       await tester.pumpWidget(UnRotApp(services: services));
       await tester.pump();

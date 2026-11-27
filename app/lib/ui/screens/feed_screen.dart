@@ -10,6 +10,7 @@ import '../../core/storage/repositories.dart';
 import '../../core/storage/settings_repository.dart';
 import '../../core/models/reel.dart';
 import '../../modules/feed/feed_engine.dart';
+import '../../modules/speech/speech_controller.dart';
 import '../../modules/study/progress_tracker.dart';
 import '../pen/pen_canvas.dart';
 import '../reels/reel_common.dart';
@@ -37,24 +38,88 @@ class _FeedScreenState extends State<FeedScreen> {
   DateTime _lastWheel = DateTime(2000);
 
   FeedEngine get _feed => context.read<AppServices>().feed;
+  late final SpeechController _speech;
 
   @override
   void initState() {
     super.initState();
     final feed = context.read<AppServices>().feed;
+    _speech = context.read<AppServices>().speech;
     _pages = PageController(initialPage: feed.currentIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await feed.ensureBuffer(force: feed.items.isEmpty);
-      if (mounted && feed.items.isNotEmpty) feed.onPageChanged(feed.currentIndex);
+      if (mounted && feed.items.isNotEmpty) {
+        feed.onPageChanged(feed.currentIndex);
+        _onReelShown();
+      }
     });
   }
 
   @override
   void dispose() {
+    _speech.stop();
     _pages.dispose();
     _focus.dispose();
     _annotationPen?.dispose();
     super.dispose();
+  }
+
+  /// A reel became the current one: read it in hands-free mode, otherwise stop reading.
+  void _onReelShown() {
+    final audio = context.read<AppServices>().settings.settings.audio;
+    if (audio.autoRead) {
+      _autoPlay();
+    } else if (_speech.speakingId != null) {
+      _speech.stop();
+    }
+  }
+
+  Future<void> _autoPlay() async {
+    final services = context.read<AppServices>();
+    final item = _feed.current;
+    if (item == null) return;
+    final audio = services.settings.settings.audio;
+    final done = await _speech.play(item.reel, handsFree: audio.autoAdvance);
+    if (!done || !mounted) return;
+    bool stillHere() =>
+        mounted &&
+        !_annotating &&
+        _feed.current?.reel.id == item.reel.id &&
+        services.settings.settings.audio.autoRead &&
+        services.settings.settings.audio.autoAdvance;
+    if (!stillHere()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (stillHere()) _go(1);
+  }
+
+  Future<void> _toggleHandsFree() async {
+    final services = context.read<AppServices>();
+    final on = !services.settings.settings.audio.autoRead;
+    if (on && !await _speech.checkAvailable()) {
+      if (mounted) _noVoice(context);
+      return;
+    }
+    services.settings.update((s) => s.audio.autoRead = on);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 2),
+          content: Text(
+            on
+                ? (services.settings.settings.audio.autoAdvance
+                      ? 'Hands-free on: reels are read aloud and the feed moves on by itself.'
+                      : 'Reels are read aloud. Turn on auto-continue in Settings → Audio for hands-free.')
+                : 'Reading aloud off.',
+          ),
+        ),
+      );
+    if (on) {
+      _autoPlay();
+    } else {
+      _speech.stop();
+    }
   }
 
   void _go(int delta) {
@@ -144,6 +209,7 @@ class _FeedScreenState extends State<FeedScreen> {
               onPageChanged: (i) {
                 if (_annotating && current != null) _toggleAnnotate(current.reel);
                 feed.onPageChanged(i);
+                _onReelShown();
               },
               itemBuilder: (context, index) {
                 final Widget page = index >= feed.items.length
@@ -166,6 +232,11 @@ class _FeedScreenState extends State<FeedScreen> {
                   onAnnotate: () => _toggleAnnotate(current.reel),
                   onExplainMore: () => _explainMore(current.reel),
                 );
+          // Scale the rail down on short screens instead of overflowing.
+          final fittedRail = ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: (constraints.maxHeight - (wide ? 150 : 170)).clamp(120, 2000)),
+            child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.bottomCenter, child: rail),
+          );
 
           return Stack(
             children: [
@@ -181,20 +252,22 @@ class _FeedScreenState extends State<FeedScreen> {
                       width: 84,
                       child: Align(
                         alignment: Alignment.bottomCenter,
-                        child: Padding(padding: const EdgeInsets.only(bottom: 90), child: rail),
+                        child: Padding(padding: const EdgeInsets.only(bottom: 90), child: fittedRail),
                       ),
                     ),
                   ],
                 )
               else ...[
                 Positioned.fill(child: pageView),
-                Positioned(right: 6, bottom: 96, child: rail),
+                Positioned(right: 6, bottom: 96, child: fittedRail),
               ],
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
-                child: SafeArea(child: _TopBar(feed: feed)),
+                child: SafeArea(
+                  child: _TopBar(feed: feed, onToggleHandsFree: _toggleHandsFree),
+                ),
               ),
               if (_annotating && _annotationPen != null)
                 Positioned(
@@ -220,8 +293,14 @@ class _FeedScreenState extends State<FeedScreen> {
       pen: services.settings.settings.pen,
       annotations: services.annotations,
       memory: _memory,
-      onAnswer: (correct) => services.tracker.recordAnswer(reel, correct, DateTime.now()),
-      onRate: (rating) => services.tracker.recordRating(reel, rating, DateTime.now()),
+      onAnswer: (correct) {
+        services.tracker.recordAnswer(reel, correct, DateTime.now());
+        services.speech.onAnswered(reel, correct);
+      },
+      onRate: (rating) {
+        services.tracker.recordRating(reel, rating, DateTime.now());
+        services.speech.onRated(reel);
+      },
       imageFile: services.sourceImage,
       allowWebImages: services.settings.settings.generation.allowWebImages,
     );
@@ -237,6 +316,8 @@ class _FeedScreenState extends State<FeedScreen> {
       source: services.library.source(reel.sourceId),
       chunk: services.library.chunk(reel.chunkId),
       isReview: item.isReview,
+      isRerun: item.isRerun,
+      neutralBackground: services.settings.settings.feed.neutralMathBackground,
       rightInset: wide ? 0 : 58,
       overlay: overlay,
     );
@@ -326,9 +407,23 @@ class _ActionRail extends StatelessWidget {
         ..showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
     }
 
+    final speaking = context.watch<SpeechController>().isSpeaking(reel.id);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        _RailButton(
+          icon: speaking ? Icons.stop_circle_outlined : Icons.volume_up_outlined,
+          label: speaking ? 'Stop' : 'Listen',
+          active: speaking,
+          onTap: () async {
+            final speech = services.speech;
+            if (!speaking && !await speech.checkAvailable()) {
+              if (context.mounted) _noVoice(context);
+              return;
+            }
+            await speech.toggle(reel);
+          },
+        ),
         _RailButton(
           icon: state?.bookmarked == true ? Icons.bookmark : Icons.bookmark_border,
           label: 'Save',
@@ -363,6 +458,7 @@ class _ActionRail extends StatelessWidget {
           onTap: () {
             final source = services.library.source(reel.sourceId);
             if (source != null) {
+              services.speech.stop();
               Navigator.of(context).push(MaterialPageRoute(builder: (_) => SourceDetailScreen(sourceId: source.id)));
             }
           },
@@ -413,9 +509,20 @@ class _RailButton extends StatelessWidget {
   );
 }
 
+void _noVoice(BuildContext context) => ScaffoldMessenger.of(context)
+  ..hideCurrentSnackBar()
+  ..showSnackBar(
+    const SnackBar(
+      content: Text(
+        'No voice found. On Linux install espeak-ng (e.g. "sudo apt install espeak-ng") and restart UnRot.',
+      ),
+    ),
+  );
+
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.feed});
+  const _TopBar({required this.feed, required this.onToggleHandsFree});
   final FeedEngine feed;
+  final VoidCallback onToggleHandsFree;
 
   @override
   Widget build(BuildContext context) {
@@ -454,25 +561,29 @@ class _TopBar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            if (focusLabel != null)
-              Flexible(
-                child: InputChip(
-                  avatar: const Icon(Icons.center_focus_strong, size: 16),
-                  label: Text(focusLabel, overflow: TextOverflow.ellipsis),
-                  onDeleted: clearFocus,
-                  visualDensity: VisualDensity.compact,
-                ),
-              )
-            else
-              Text(
-                services.generation.usesOffline ? 'For you · offline' : 'For you',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w600,
-                  shadows: [Shadow(blurRadius: 6)],
-                ),
+            // Takes the free space, so the buttons stay at the right edge.
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: focusLabel != null
+                    ? InputChip(
+                        avatar: const Icon(Icons.center_focus_strong, size: 16),
+                        label: Text(focusLabel, overflow: TextOverflow.ellipsis),
+                        onDeleted: clearFocus,
+                        visualDensity: VisualDensity.compact,
+                      )
+                    : Text(
+                        services.generation.usesOffline ? 'For you · offline' : 'For you',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w600,
+                          shadows: [Shadow(blurRadius: 6)],
+                        ),
+                      ),
               ),
-            const Spacer(),
+            ),
             if (feed.isGenerating)
               Tooltip(
                 message: 'Creating reels${feed.generatingLabel != null ? ' for ${feed.generatingLabel}' : ''}…',
@@ -482,6 +593,26 @@ class _TopBar extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 ),
               ),
+            if (feed.notice != null)
+              IconButton(
+                tooltip: feed.notice,
+                icon: const Icon(Icons.savings_outlined, color: Color(0xFF80DEEA)),
+                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(feed.notice!))),
+              ),
+            IconButton(
+              tooltip: settings.audio.autoRead ? 'Stop reading aloud' : 'Hands-free: read reels aloud',
+              isSelected: settings.audio.autoRead,
+              style: IconButton.styleFrom(
+                backgroundColor: settings.audio.autoRead
+                    ? const Color(0xFFFFD54F)
+                    : Colors.black.withValues(alpha: 0.25),
+              ),
+              icon: Icon(
+                settings.audio.autoRead ? Icons.headphones : Icons.headphones_outlined,
+                color: settings.audio.autoRead ? Colors.black : Colors.white,
+              ),
+              onPressed: onToggleHandsFree,
+            ),
             if (feed.lastError != null && !feed.isGenerating)
               IconButton(
                 tooltip: feed.lastError,

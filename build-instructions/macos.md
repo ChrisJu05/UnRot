@@ -90,5 +90,6 @@ Wacom/graphics tablets and an iPad used as a tablet via Sidecar (Apple Pencil) s
 |---|---|
 | AI requests fail with "Operation not permitted" | Make sure `com.apple.security.network.client` is still in both entitlements files. |
 | Import dialog does not open | `com.apple.security.files.user-selected.read-only` must be present. |
+| Read aloud uses the wrong voice | UnRot asks for the reel's language (e.g. `de-DE`); add voices under *System Settings → Accessibility → Spoken Content → System voice → Manage voices*. |
 | `pdftotext` fallback is not used | The sandbox blocks external tools, so the built-in PDF reader is used. This is expected. |
 | CocoaPods errors after a Flutter upgrade | `cd app/macos && pod repo update && pod install`, or `flutter clean && flutter pub get`. |

@@ -159,14 +159,35 @@ class ReelState {
 
 /// Global study statistics (streaks, daily activity).
 class StudyStats {
-  StudyStats({Map<String, int>? reelsPerDay, this.totalReels = 0, this.totalCorrect = 0, this.totalAnswered = 0})
-    : reelsPerDay = reelsPerDay ?? {};
+  StudyStats({
+    Map<String, int>? reelsPerDay,
+    Map<String, int>? aiRequestsPerDay,
+    this.totalReels = 0,
+    this.totalCorrect = 0,
+    this.totalAnswered = 0,
+    this.totalAiRequests = 0,
+    this.reelsRetired = 0,
+  }) : reelsPerDay = reelsPerDay ?? {},
+       aiRequestsPerDay = aiRequestsPerDay ?? {};
 
   /// `yyyy-mm-dd` -> reels viewed that day.
   final Map<String, int> reelsPerDay;
   int totalReels;
   int totalCorrect;
   int totalAnswered;
+
+  /// `yyyy-mm-dd` -> AI generation requests that day.
+  final Map<String, int> aiRequestsPerDay;
+  int totalAiRequests;
+  int reelsRetired;
+
+  int aiRequestsOn(DateTime day) => aiRequestsPerDay[dayKey(day)] ?? 0;
+
+  void countAiRequest(DateTime now) {
+    final key = dayKey(now);
+    aiRequestsPerDay[key] = (aiRequestsPerDay[key] ?? 0) + 1;
+    totalAiRequests++;
+  }
 
   static String dayKey(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -190,6 +211,9 @@ class StudyStats {
     'totalReels': totalReels,
     'totalCorrect': totalCorrect,
     'totalAnswered': totalAnswered,
+    'aiRequestsPerDay': aiRequestsPerDay,
+    'totalAiRequests': totalAiRequests,
+    'reelsRetired': reelsRetired,
   };
 
   factory StudyStats.fromJson(Map<String, dynamic> json) => StudyStats(
@@ -197,5 +221,8 @@ class StudyStats {
     totalReels: jInt(json['totalReels']),
     totalCorrect: jInt(json['totalCorrect']),
     totalAnswered: jInt(json['totalAnswered']),
+    aiRequestsPerDay: jMap(json['aiRequestsPerDay']).map((k, v) => MapEntry(k, jInt(v))),
+    totalAiRequests: jInt(json['totalAiRequests']),
+    reelsRetired: jInt(json['reelsRetired']),
   );
 }

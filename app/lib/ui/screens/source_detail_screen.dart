@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/util/text.dart';
 import '../../app/app_services.dart';
 import '../../core/models/languages.dart';
 import '../../core/models/progress.dart';
@@ -10,6 +11,9 @@ import '../../modules/feed/feed_engine.dart';
 import '../../modules/generation/generation_job.dart';
 import '../../modules/study/modes/builtin_modes.dart';
 import '../theme/app_theme.dart';
+import '../widgets/chat_exchange_panel.dart';
+import '../widgets/import_flow.dart';
+import '../../modules/study/subjects.dart';
 import 'library_screen.dart';
 import '../widgets/readable_width.dart';
 
@@ -167,6 +171,27 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
                   ),
                 ],
                 const SizedBox(height: 20),
+                Text('Subject', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  key: ValueKey('subject-${source.id}'),
+                  initialValue: SubjectProfiles.byId(source.study.subjectId).id,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    helperText: 'Adds subject knowledge and math/science reel types (theorems, recipes, formulas, calculations).',
+                    helperMaxLines: 2,
+                  ),
+                  items: [
+                    for (final p in SubjectProfiles.all)
+                      DropdownMenuItem(
+                        value: p.id,
+                        child: Text(p.label, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                  onChanged: (v) => _save(() => source.study.subjectId = v ?? 'general'),
+                ),
+                const SizedBox(height: 20),
                 Text('Reel language', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
@@ -233,6 +258,10 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
                   icon: const Icon(Icons.center_focus_strong),
                   label: const Text('Study only this source now'),
                 ),
+                const SizedBox(height: 24),
+                _DocumentsPanel(sourceId: source.id),
+                const SizedBox(height: 12),
+                ChatExchangePanel(sourceId: source.id),
                 const SizedBox(height: 24),
                 Row(
                   children: [
@@ -336,4 +365,92 @@ class _SourceDetailScreenState extends State<SourceDetailScreen> {
       ),
     ),
   );
+}
+
+/// Documents of a source (collection): add, reorder, remove.
+class _DocumentsPanel extends StatelessWidget {
+  const _DocumentsPanel({required this.sourceId});
+  final String sourceId;
+
+  @override
+  Widget build(BuildContext context) {
+    final library = context.watch<LibraryRepository>();
+    final services = context.read<AppServices>();
+    final source = library.source(sourceId);
+    if (source == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final docs = source.documents;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Documents (${docs.length})',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Add documents',
+              icon: const Icon(Icons.note_add_outlined),
+              onSelected: (v) => v == 'file'
+                  ? ImportFlow.pickFiles(context, intoSourceId: sourceId)
+                  : ImportFlow.pasteText(context, intoSourceId: sourceId),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'file', child: Text('Add files to this source')),
+                PopupMenuItem(value: 'text', child: Text('Add pasted text')),
+              ],
+            ),
+          ],
+        ),
+        if (docs.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('This collection is empty. Add files (scripts, exercise sheets, formula collections, …).'),
+          ),
+        for (var i = 0; i < docs.length; i++)
+          Card(
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            child: ListTile(
+              leading: Icon(LibraryScreen.formatIcons[docs[i].format] ?? Icons.article_outlined),
+              title: Text(docs[i].title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                '${plural(docs[i].chunkCount, 'section')}${docs[i].fileName != null ? ' · ${docs[i].fileName}' : ''}',
+              ),
+              trailing: PopupMenuButton<String>(
+                onSelected: (v) async {
+                  switch (v) {
+                    case 'up':
+                      await library.moveDocument(sourceId, docs[i].id, -1);
+                    case 'down':
+                      await library.moveDocument(sourceId, docs[i].id, 1);
+                    case 'remove':
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (c) => AlertDialog(
+                          title: const Text('Remove document?'),
+                          content: Text(
+                            '"${docs[i].title}" and its reels and progress will be removed from this source.',
+                          ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Remove')),
+                          ],
+                        ),
+                      );
+                      if (ok == true) await services.removeDocument(sourceId, docs[i].id);
+                  }
+                },
+                itemBuilder: (_) => [
+                  if (i > 0) const PopupMenuItem(value: 'up', child: Text('Move up')),
+                  if (i < docs.length - 1) const PopupMenuItem(value: 'down', child: Text('Move down')),
+                  const PopupMenuItem(value: 'remove', child: Text('Remove from source')),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }

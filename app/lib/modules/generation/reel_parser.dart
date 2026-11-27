@@ -141,6 +141,25 @@ class ReelParser {
     return result;
   }
 
+  /// Maps type aliases and validates one raw reel object; returns (type, data) or null.
+  static (String, Map<String, dynamic>)? normalizeReel(Map<String, dynamic> raw, {String? fallbackType}) {
+    var type = jString(raw['type']).toLowerCase().replaceAll(RegExp(r'[\s-]'), '_');
+    type = switch (type) {
+      'multiple_choice' || 'mcq' => 'quiz',
+      'truefalse' => 'true_false',
+      'recipe' || 'rechenrezept' || 'procedure' => 'math_recipe',
+      'satz' || 'law' || 'gesetz' || 'lemma' => 'theorem',
+      'formula_card' || 'formel' => 'formula',
+      'calculation' || 'exercise' || 'rechenaufgabe' => 'calc_exercise',
+      _ => type,
+    };
+    if (type.isEmpty && fallbackType != null) type = fallbackType;
+    final spec = ReelTypes.byId(type);
+    if (spec == null) return null;
+    final data = spec.normalize(raw);
+    return data == null ? null : (type, data);
+  }
+
   List<Reel> parse(String text, GenerationJob job, {required String generator}) {
     final json = extractJson(text);
     final List rawList;
@@ -156,15 +175,10 @@ class ReelParser {
     final reels = <Reel>[];
     for (var i = 0; i < rawList.length; i++) {
       final raw = jMap(rawList[i]);
-      var type = jString(raw['type']).toLowerCase().replaceAll(RegExp(r'[\s-]'), '_');
-      if (type == 'multiple_choice' || type == 'mcq') type = 'quiz';
-      if (type == 'truefalse') type = 'true_false';
-      if (type.isEmpty && i < job.reelTypes.length) type = job.reelTypes[i];
-      final spec = ReelTypes.byId(type);
       // Other known types are accepted too: the model may swap a type that does not fit the material.
-      if (spec == null) continue;
-      final data = spec.normalize(raw);
-      if (data == null) continue;
+      final normalized = normalizeReel(raw, fallbackType: i < job.reelTypes.length ? job.reelTypes[i] : null);
+      if (normalized == null) continue;
+      final (type, data) = normalized;
       reels.add(
         Reel(
           id: newId('r'),

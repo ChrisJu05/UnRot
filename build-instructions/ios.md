@@ -83,4 +83,5 @@ Cloud providers (Anthropic, OpenAI, Gemini, OpenRouter, …) use HTTPS and need 
 |---|---|
 | `No profiles for 'io.github.unrot.unrot' were found` | Change the bundle identifier and pick your team (step 3). |
 | `Untrusted Developer` on device | Trust the certificate under *Settings → General → VPN & Device Management*. |
+| Read aloud is silent | Turn up the media volume. Reading works with the silent switch on (audio session "playback"). For better voices, download enhanced voices under *Settings → Accessibility → Spoken Content → Voices*. |
 | Pod/SPM resolution errors | `flutter clean && flutter pub get`, then build again (or `cd ios && pod install --repo-update`). |

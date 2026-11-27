@@ -13,8 +13,16 @@ class Chunker {
   final int minChars;
   final int maxChars;
 
-  List<SourceChunk> chunk(String sourceId, String text, {String? fallbackTitle}) {
-    final blocks = _blocks(normalize(text));
+  /// [documentId] and [idPrefix] are used for documents inside collections;
+  /// chunk ids default to `<sourceId>:<n>`.
+  List<SourceChunk> chunk(
+    String sourceId,
+    String text, {
+    String? fallbackTitle,
+    String documentId = 'd0',
+    String? idPrefix,
+  }) {
+    final blocks = _splitLongHeadings(_blocks(normalize(text)));
     final sections = <_Section>[];
     final headingStack = <(int, String)>[];
     var current = _Section(const []);
@@ -74,12 +82,13 @@ class Chunker {
       }
       chunks.add(
         SourceChunk(
-          id: '$sourceId:${chunks.length}',
+          id: '${idPrefix ?? '$sourceId:'}${chunks.length}',
           sourceId: sourceId,
           index: chunks.length,
           title: title,
           headingPath: s.headingPath,
           text: body,
+          documentId: documentId,
         ),
       );
     }
@@ -162,6 +171,33 @@ class Chunker {
     final letters = line.replaceAll(RegExp(r'[^A-Za-zÄÖÜäöüß]'), '');
     return letters.length >= 4 && letters == letters.toUpperCase() && line.split(' ').length <= 8;
   }
+
+  /// A "# heading" line that is really a paragraph (e.g. pasted text on one line):
+  /// keep its first sentence as the heading and the rest as text.
+  static List<String> _splitLongHeadings(List<String> blocks) {
+    final out = <String>[];
+    for (final block in blocks) {
+      final md = block.contains('\n') ? null : RegExp(r'^(#{1,6})\s+(.+)$').firstMatch(block);
+      if (md == null || md[2]!.length <= maxHeadingChars) {
+        out.add(block);
+        continue;
+      }
+      final title = md[2]!;
+      final cut = RegExp(r'[.!?](?=\s)').allMatches(title).map((m) => m.end).where((i) => i <= maxHeadingChars);
+      if (cut.isEmpty) {
+        out.add(title);
+      } else {
+        final end = cut.first;
+        out
+          ..add('${md[1]} ${title.substring(0, end).replaceFirst(RegExp(r'[.:]$'), '').trim()}')
+          ..add(title.substring(end).trim());
+      }
+    }
+    return out;
+  }
+
+  /// Longer "headings" are treated as text.
+  static const maxHeadingChars = 120;
 
   (int, String)? _heading(String block) {
     if (block.contains('\n')) return null;

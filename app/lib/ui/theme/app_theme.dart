@@ -3,6 +3,13 @@ import 'package:material_ui/material_ui.dart';
 import '../../core/util/ids.dart';
 
 class AppTheme {
+  /// Monospace text. Named fonts first: on some Linux setups the generic
+  /// "monospace" resolves to a CJK font that draws backslashes as "¥".
+  static const monoStyle = TextStyle(
+    fontFamily: 'DejaVu Sans Mono',
+    fontFamilyFallback: ['Menlo', 'Consolas', 'Liberation Mono', 'Noto Sans Mono', 'Courier New', 'monospace'],
+  );
+
   static const seed = Color(0xFF7C4DFF);
 
   static ThemeData dark() {
@@ -38,6 +45,9 @@ class AppTheme {
     [Color(0xFF4B1248), Color(0xFF9D2C5E), Color(0xFFF0C27B)],
   ];
 
+  /// Calm slate background for formula-heavy reels.
+  static const List<Color> neutralGradient = [Color(0xFF1B2026), Color(0xFF232A31), Color(0xFF2B333B)];
+
   static List<Color> gradientFor(String key) => reelGradients[stableHash(key) % reelGradients.length];
 
   static const Map<String, IconData> reelIcons = {
@@ -50,6 +60,10 @@ class AppTheme {
     'write_recall': Icons.draw_outlined,
     'mnemonic': Icons.psychology_alt_outlined,
     'visual': Icons.auto_graph,
+    'math_recipe': Icons.format_list_numbered,
+    'theorem': Icons.gavel_outlined,
+    'formula': Icons.functions,
+    'calc_exercise': Icons.calculate_outlined,
   };
 
   static const Map<String, IconData> modeIcons = {

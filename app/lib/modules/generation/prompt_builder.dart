@@ -51,8 +51,10 @@ class PromptBuilder {
     buffer.writeln('STUDY MODE: ${job.mode.name}. ${job.mode.promptGuidance}');
     buffer.writeln('DIFFICULTY: ${_difficulty[job.difficulty]}.');
     buffer.writeln(
-      'SOURCE: "${job.source.title}", section ${chunk.index + 1} of ${job.chunkCount}: ${chunk.breadcrumb}',
+      'SOURCE: "${job.source.title}"${job.documentTitle == null ? '' : ', document "${job.documentTitle}"'}, '
+      'section ${chunk.index + 1} of ${job.chunkCount}: ${chunk.breadcrumb}',
     );
+    if (job.subject.guidance.isNotEmpty) buffer.writeln('SUBJECT: ${job.subject.guidance}');
     if (job.previousChunkTitle != null) buffer.writeln('PREVIOUS SECTION: ${job.previousChunkTitle}');
     final p = job.progress;
     if (p != null && p.reelsSeen > 0) {
